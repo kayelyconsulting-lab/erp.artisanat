@@ -1,0 +1,1639 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>ERP Artisanat – Kayely Group</title>
+<style>
+:root {
+  --primary:#1A3A6E;
+  --secondary:#F47C1A;
+  --primary-light:#2456A4;
+  --secondary-light:#FFA040;
+  --accent:#EEF3FB;
+  --success:#27AE60;
+  --danger:#E74C3C;
+  --warning:#F39C12;
+  --info:#2980B9;
+  --bg:#F5F7FB;
+  --card:#FFFFFF;
+  --border:#E2E8F0;
+  --text:#1E2A3A;
+  --text-light:#6B7A8D;
+  --sidebar-w:240px;
+  --radius:10px;
+  --shadow:0 2px 12px rgba(26,58,110,0.10);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+
+/* ======= LOGIN ======= */
+#loginScreen{display:flex;align-items:center;justify-content:center;min-height:100vh;
+  background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 50%,#1E5799 100%);padding:16px;}
+.login-card{background:rgba(255,255,255,0.08);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.18);
+  border-radius:20px;padding:32px 28px;width:100%;max-width:420px;color:#fff;}
+.login-logo{text-align:center;margin-bottom:24px}
+.login-logo img{height:80px;width:80px;object-fit:contain;background:rgba(255,255,255,0.15);
+  border-radius:14px;padding:8px;margin-bottom:10px}
+.login-logo h1{font-size:1.4rem;font-weight:700;letter-spacing:.5px}
+.login-logo p{font-size:.82rem;opacity:.75;margin-top:4px}
+.sync-banner{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.12);
+  border-radius:20px;padding:6px 14px;margin:0 auto 20px;width:fit-content;font-size:.8rem;color:rgba(255,255,255,.9);}
+.sdot{width:9px;height:9px;border-radius:50%;background:#ccc;flex-shrink:0;transition:background .3s}
+.sdot.online{background:var(--success);box-shadow:0 0 6px var(--success);animation:pulse 2s infinite}
+.sdot.connecting{background:var(--warning);animation:pulse 1s infinite}
+.sdot.offline{background:var(--danger)}
+.users-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.user-card-btn{background:rgba(255,255,255,0.10);border:2px solid rgba(255,255,255,0.20);
+  border-radius:14px;padding:16px 12px;cursor:pointer;color:#fff;text-align:center;
+  transition:all .2s;position:relative;display:flex;flex-direction:column;align-items:center;gap:6px}
+.user-card-btn:hover{background:rgba(255,255,255,0.22);border-color:rgba(255,255,255,.5);transform:translateY(-2px)}
+.u-icon{font-size:1.8rem;line-height:1}
+.u-name{font-weight:700;font-size:.95rem}
+.u-role{font-size:.72rem;opacity:.7;text-transform:uppercase;letter-spacing:.5px}
+.u-online{position:absolute;top:8px;right:8px;width:8px;height:8px;background:var(--success);
+  border-radius:50%;box-shadow:0 0 4px var(--success)}
+.pin-block{display:none;text-align:center;margin-top:8px}
+.pin-block.show{display:block}
+.sel-user-info{display:flex;align-items:center;gap:12px;margin-bottom:16px;
+  background:rgba(255,255,255,0.10);border-radius:10px;padding:10px 14px}
+#selUserIcon{font-size:1.6rem}
+.pin-dots{display:flex;gap:10px;justify-content:center;margin:14px 0}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.5);background:transparent;transition:all .2s}
+.pin-dot.filled{background:#fff;border-color:#fff}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:240px;margin:0 auto}
+.pin-btn{background:rgba(255,255,255,0.15);border:1.5px solid rgba(255,255,255,0.25);
+  border-radius:10px;color:#fff;font-size:1.2rem;font-weight:600;padding:14px;cursor:pointer;transition:all .15s}
+.pin-btn:hover{background:rgba(255,255,255,0.30)}
+.pin-btn:active{transform:scale(.95)}
+.btn-back{background:none;border:1.5px solid rgba(255,255,255,.4);border-radius:8px;
+  color:rgba(255,255,255,.8);padding:8px 16px;cursor:pointer;font-size:.85rem;margin-top:12px;width:100%}
+.btn-back:hover{background:rgba(255,255,255,.1)}
+.pin-hint-box{margin-top:14px;background:rgba(255,255,255,.07);border-radius:10px;
+  padding:12px 16px;border:1px solid rgba(255,255,255,.13)}
+.pin-hint-title{font-size:.72rem;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}
+.pin-hint-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;
+  font-size:.82rem;color:rgba(255,255,255,.82)}
+.pin-hint-row code{background:rgba(255,255,255,.13);padding:2px 8px;border-radius:4px;
+  font-family:monospace;font-size:.88rem;color:#fff;letter-spacing:2px}
+
+/* ======= APP SHELL ======= */
+#appContainer{display:none;min-height:100vh}
+#appContainer.visible{display:flex}
+
+/* ======= SIDEBAR ======= */
+.sidebar{width:var(--sidebar-w);background:linear-gradient(180deg,var(--primary) 0%,var(--primary-light) 100%);
+  color:#fff;display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;
+  z-index:100;transition:transform .3s;overflow-y:auto}
+.sidebar-header{padding:14px 16px 10px;border-bottom:1px solid rgba(255,255,255,.12)}
+.sidebar-header-inner{display:flex;align-items:center;gap:10px}
+.sidebar-header-inner img{height:40px;width:40px;object-fit:contain;background:rgba(255,255,255,.15);
+  border-radius:7px;padding:3px;flex-shrink:0}
+.sidebar-title{font-size:.95rem;font-weight:700;line-height:1.2}
+.sidebar-version{font-size:.68rem;opacity:.6;margin-top:1px}
+.sidebar-entity{font-size:.72rem;opacity:.75;margin-top:2px;padding:0 16px 8px;
+  border-bottom:1px solid rgba(255,255,255,.10)}
+nav ul{list-style:none;padding:8px 0}
+.nav-item{margin:1px 8px}
+.nav-link{display:flex;align-items:center;gap:10px;padding:9px 12px;color:rgba(255,255,255,.8);
+  background:none;border:none;width:100%;border-radius:8px;cursor:pointer;font-size:.88rem;transition:all .15s}
+.nav-link:hover,.nav-link.active{background:rgba(255,255,255,.18);color:#fff}
+.nav-link .icon{font-size:1rem;width:20px;text-align:center}
+.nav-section-title{font-size:.65rem;text-transform:uppercase;letter-spacing:1px;
+  color:rgba(255,255,255,.4);padding:10px 20px 4px}
+.sidebar-footer{margin-top:auto;padding:12px 16px;border-top:1px solid rgba(255,255,255,.12)}
+.user-badge{display:flex;align-items:center;gap:8px;padding:8px 10px;
+  background:rgba(255,255,255,.12);border-radius:8px;margin-bottom:8px}
+.user-badge .ub-icon{font-size:1.3rem}
+.user-badge .ub-name{font-size:.82rem;font-weight:600}
+.user-badge .ub-role{font-size:.68rem;opacity:.65}
+.btn-logout{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;
+  background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.25);border-radius:8px;
+  color:rgba(255,255,255,.85);padding:7px;cursor:pointer;font-size:.82rem;transition:all .2s}
+.btn-logout:hover{background:rgba(231,76,60,.3);border-color:rgba(231,76,60,.5)}
+
+/* ======= MAIN ======= */
+.main-content{margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;min-height:100vh}
+.topbar{background:var(--card);border-bottom:1px solid var(--border);padding:12px 24px;
+  display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:90;
+  box-shadow:0 1px 6px rgba(26,58,110,.07)}
+.topbar-title h2{font-size:1.1rem;font-weight:700;color:var(--primary)}
+.topbar-title p{font-size:.78rem;color:var(--text-light);margin-top:1px}
+.topbar-actions{display:flex;align-items:center;gap:10px}
+.sync-pill{display:flex;align-items:center;gap:6px;font-size:.75rem;color:var(--text-light);
+  background:var(--accent);border-radius:20px;padding:5px 12px;border:1px solid var(--border)}
+.sync-pill .sdot{width:7px;height:7px}
+.content{padding:24px;flex:1}
+
+/* ======= CARDS ======= */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);
+  border:1px solid var(--border);margin-bottom:20px}
+.card-header{padding:14px 18px 12px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between}
+.card-title{font-size:.95rem;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px}
+.card-body{padding:16px 18px}
+
+/* ======= KPI GRID ======= */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.kpi-card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);
+  border:1px solid var(--border);padding:16px 18px;display:flex;align-items:flex-start;gap:14px}
+.kpi-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;
+  justify-content:center;font-size:1.3rem;flex-shrink:0}
+.kpi-icon.blue{background:#EEF3FB;color:var(--primary)}
+.kpi-icon.green{background:#EAFAF1;color:var(--success)}
+.kpi-icon.orange{background:#FEF5E7;color:var(--secondary)}
+.kpi-icon.red{background:#FDEDEC;color:var(--danger)}
+.kpi-label{font-size:.75rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.4px}
+.kpi-value{font-size:1.3rem;font-weight:700;color:var(--text);margin-top:3px;line-height:1.1}
+.kpi-sub{font-size:.72rem;color:var(--text-light);margin-top:2px}
+
+/* ======= TABLE ======= */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.84rem}
+thead th{background:var(--accent);color:var(--primary);font-weight:600;padding:10px 12px;
+  text-align:left;border-bottom:2px solid var(--border);white-space:nowrap}
+tbody tr{border-bottom:1px solid var(--border);transition:background .15s}
+tbody tr:hover{background:var(--accent)}
+tbody td{padding:9px 12px;vertical-align:middle}
+
+/* ======= BADGES ======= */
+.badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;
+  font-size:.72rem;font-weight:600;letter-spacing:.3px}
+.badge-success{background:#EAFAF1;color:var(--success)}
+.badge-danger{background:#FDEDEC;color:var(--danger)}
+.badge-warning{background:#FEF5E7;color:var(--warning)}
+.badge-info{background:#EBF5FB;color:var(--info)}
+.badge-gray{background:#F0F0F0;color:#666}
+
+/* ======= BUTTONS ======= */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:8px;
+  border:none;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .15s}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-light)}
+.btn-secondary{background:var(--secondary);color:#fff}
+.btn-secondary:hover{background:var(--secondary-light)}
+.btn-success{background:var(--success);color:#fff}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-outline{background:transparent;color:var(--primary);border:1.5px solid var(--border)}
+.btn-outline:hover{border-color:var(--primary);background:var(--accent)}
+.btn-sm{padding:5px 11px;font-size:.78rem}
+.btn-icon{background:none;border:none;cursor:pointer;padding:5px 7px;border-radius:6px;
+  font-size:1rem;transition:background .15s;color:var(--text-light)}
+.btn-icon:hover{background:var(--accent)}
+.btn-icon.edit:hover{color:var(--info)}
+.btn-icon.del:hover{color:var(--danger)}
+
+/* ======= FORMS ======= */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-group.full{grid-column:1/-1}
+.form-label{font-size:.8rem;font-weight:600;color:var(--text)}
+.form-control{padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;
+  font-size:.88rem;background:var(--card);color:var(--text);width:100%;
+  transition:border-color .15s;outline:none}
+.form-control:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(26,58,110,.08)}
+.req{color:var(--danger)}
+
+/* ======= MODAL ======= */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;
+  display:none;align-items:center;justify-content:center;padding:16px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--card);border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,.22);
+  width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-header{padding:16px 20px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between}
+.modal-title{font-size:1rem;font-weight:700;color:var(--primary)}
+.modal-close{background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-light);
+  padding:2px 6px;border-radius:4px}
+.modal-close:hover{background:var(--accent)}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.modal-footer{padding:14px 20px;border-top:1px solid var(--border);
+  display:flex;gap:10px;justify-content:flex-end}
+
+/* ======= MOBILE NAV ======= */
+.mobile-nav{display:none;position:fixed;bottom:0;left:0;right:0;
+  background:var(--card);border-top:1px solid var(--border);z-index:200;
+  padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+  box-shadow:0 -2px 12px rgba(0,0,0,.08)}
+.mobile-nav ul{display:flex;justify-content:space-around;list-style:none}
+.mobile-nav-btn{background:none;border:none;cursor:pointer;display:flex;
+  flex-direction:column;align-items:center;gap:3px;padding:5px 8px;
+  color:var(--text-light);font-size:.62rem;transition:color .15s}
+.mobile-nav-btn.active,.mobile-nav-btn:hover{color:var(--primary)}
+.mobile-nav-btn .icon{font-size:1.2rem}
+.mobile-fab{display:none;position:fixed;bottom:72px;right:16px;z-index:199;
+  background:var(--secondary);color:#fff;border:none;border-radius:50%;
+  width:50px;height:50px;font-size:1.5rem;cursor:pointer;
+  box-shadow:0 4px 16px rgba(244,124,26,.4);transition:transform .15s}
+.mobile-fab:hover{transform:scale(1.08)}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:99}
+
+/* ======= PARAMETRES ======= */
+.param-logo-zone{display:flex;flex-direction:column;align-items:center;gap:8px}
+.param-logo-preview{width:130px;height:130px;border:2px dashed var(--border);border-radius:10px;
+  display:flex;align-items:center;justify-content:center;background:var(--accent);overflow:hidden;flex-shrink:0}
+.logo-ph{text-align:center;color:var(--text-light);font-size:2rem}
+.param-entite-layout{display:grid;grid-template-columns:150px 1fr;gap:20px;align-items:start}
+.param-row-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.icon-pick-btn{background:none;border:2px solid var(--border);border-radius:8px;
+  font-size:1.4rem;padding:6px 10px;cursor:pointer;transition:all .2s}
+.icon-pick-btn.selected{border-color:var(--primary);background:var(--accent)}
+
+/* ======= ENTITY BADGE ======= */
+.entity-banner{display:flex;align-items:center;gap:12px;padding:10px 14px;
+  background:linear-gradient(90deg,var(--accent),#fff);border-radius:10px;
+  border-left:4px solid var(--primary);margin-bottom:20px}
+.entity-banner img{height:38px;border-radius:5px}
+.entity-banner .eb-name{font-weight:700;color:var(--primary);font-size:1rem}
+.entity-banner .eb-sub{font-size:.75rem;color:var(--text-light);margin-top:1px}
+
+/* ======= TOAST ======= */
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+  padding:10px 24px;border-radius:24px;font-size:.88rem;font-weight:600;
+  color:#fff;z-index:9999;display:none;box-shadow:0 4px 16px rgba(0,0,0,.2);
+  animation:fadeIn .2s ease}
+.toast.show{display:block}
+.toast.success{background:var(--success)}
+.toast.error{background:var(--danger)}
+.toast.info{background:var(--info)}
+
+/* ======= GOOGLE SHEETS CONFIG ======= */
+.gs-config-box{background:var(--accent);border:1.5px solid var(--border);border-radius:10px;
+  padding:16px 18px;margin-bottom:16px}
+.gs-status-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.gs-steps{counter-reset:step;list-style:none;padding:0}
+.gs-steps li{counter-increment:step;padding:6px 0 6px 32px;position:relative;font-size:.85rem;color:var(--text)}
+.gs-steps li::before{content:counter(step);position:absolute;left:0;top:5px;
+  width:22px;height:22px;background:var(--primary);color:#fff;border-radius:50%;
+  font-size:.72rem;font-weight:700;display:flex;align-items:center;justify-content:center}
+.gs-steps a{color:var(--secondary);font-weight:600}
+
+/* ======= MISC ======= */
+.top-actions{display:flex;gap:8px;align-items:center}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text-light)}
+.empty-state .ei{font-size:2.5rem;margin-bottom:8px}
+.empty-state p{font-size:.88rem}
+.alert{padding:10px 14px;border-radius:8px;font-size:.85rem;margin-bottom:12px;border-left:4px solid}
+.alert-warning{background:#FEF5E7;border-color:var(--warning);color:#8B6914}
+.alert-info{background:#EBF5FB;border-color:var(--info);color:#1A5276}
+.alert-danger{background:#FDEDEC;border-color:var(--danger);color:#922B21}
+.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
+.text-muted{color:var(--text-light)}
+.text-right{text-align:right}
+.fw-bold{font-weight:700}
+.color-success{color:var(--success)}
+.color-danger{color:var(--danger)}
+.color-warning{color:var(--warning)}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes fadeIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+
+@media(max-width:768px){
+  .sidebar{transform:translateX(-100%)}
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-overlay.open{display:block}
+  .main-content{margin-left:0}
+  .mobile-nav{display:block}
+  .mobile-fab{display:flex;align-items:center;justify-content:center}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .form-grid,.form-grid-3,.param-row-2,.param-entite-layout{grid-template-columns:1fr}
+  .content{padding:14px;padding-bottom:130px}
+  .topbar{padding:10px 14px}
+}
+@media print{.sidebar,.mobile-nav,.mobile-fab,.topbar,.sidebar-overlay{display:none!important}
+  .main-content{margin-left:0}.card{box-shadow:none;border:1px solid #ddd}}
+</style>
+</head>
+<body>
+
+<!-- ==================== LOGIN ==================== -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBAUEBAYFBQUGBgYHCQ4JCQgICRINDQoOFRIWFhUSFBQXGiEcFxgfGRQUHScdHyIjJSUlFhwpLCgkKyEkJST/2wBDAQYGBgkICREJCREkGBQYJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCT/wAARCAC0ALQDASIAAhEBAxEB/8QAHAAAAwEAAwEBAAAAAAAAAAAAAAECAwQGBwUI/8QAPxAAAgICAQIDBAUICAcAAAAAAAECAwQRBQYSITFBBxNRcQgiYYGRFBUyQkRistEWIyVDRWWhwTM0UnOisbP/xAAbAQEAAgMBAQAAAAAAAAAAAAAAAQIEBQYDB//EADMRAAIBAwEECAQGAwAAAAAAAAABAgMEETEFIUFhEhMyUXHB0fAUMzSxFSMkYpHhUnKh/9oADAMBAAIRAxEAPwD9KxiWkJItIAEUgSKSABIpIaQ0gBJD0VoNAC0Meg0AIBgALQtFBoAnQtFaDQIIaJaNGiWgDNolo0aJaBJm0RJGrRDQBi4+IGjj4gAWkWkJItIAEikgSKSABIoEMANANIYAtDDQ9ACAYAEhorQtAEtBooWgCRMpoQIIaJaNGS0AZtENGrRDQBm/MCmAJKSLSEikANIpISKAGkPQDAAegQABoegAEAGgAAQDBgkWhDAAloTRQmAS0S0WyWAQyWi2SwQZteIDYAktFIlFIApFIlFIAaKEMAB6EPYAAZ5OTRh0TyMm6uimtd07LJKMYr4tvyPn8H1RwvUv5R+Z+Sx85Y7UbXTLuUW968fuZKi2s43FcpPDZ9QBWWQqhKyyUYQitylJ6SXxbOtX+0zo7HslXZ1Dg90Xp9snJfik0WjTlPsrJEqkIdp4OzAfCxeuem82v3mPy1FkPilL+Rv/AEs4R/4jT/r/ACMSd3QpycJzSa4NoyI0KkkpRi2nyPrCCucbYRsg9xklJP4pjZkJ5PLQTEMTAJYmUyWASyWWyGAQ0APzAApFohFoEDRRKLBI0MSGAA0IAD88/SX6ozHzeB03C2UMKGOsu2CelebSvTbXa8J7SKFv5K/RLZ+Tx85Y7UbXTLuUW968fuZKi2s43FcpPDZ9QBWWQqhKyyUYQitylJ6SXxbOtX+0zo7HslXZ1Dg90Xp9snJfik0WjTlPsrJEqkIdp4OzAfCxeuem82v3mPy1FkPilL+Rv/AEs4R/4jT/r/ACMSd3QpycJzSa4NoyI0KkkpRi2nyPrCCucbYRsg9xklJP4pjZkJ5PLQTEMTAJYmUyWASyWWyGAQ0APzAApFohFoEDRRKLBI0MSGAA0IAD88/SX6ozHzeB03C2UMKGOsu2CelebSvTbXa8J7SKFv5K/RLZ" alt="Kayely Group">
+      <h1>ERP Artisanat</h1>
+      <p>Kayely Group &bull; Gestion professionnelle</p>
+    </div>
+    <div class="sync-banner">
+      <span class="sdot connecting" id="loginDot"></span>
+      <span id="loginSyncTxt">Connexion au cloud...</span>
+    </div>
+    <div id="userSelView">
+      <div class="users-grid" id="usersGrid"></div>
+    </div>
+    <div id="pinView" class="pin-block">
+      <div class="sel-user-info">
+        <span id="selIcon" class="ub-icon">&#x1F464;</span>
+        <div><div id="selName" class="ub-name">-</div><div id="selRole" style="font-size:.72rem;opacity:.7">-</div></div>
+      </div>
+      <div class="pin-dots">
+        <span class="pin-dot" id="pd0"></span><span class="pin-dot" id="pd1"></span>
+        <span class="pin-dot" id="pd2"></span><span class="pin-dot" id="pd3"></span>
+      </div>
+      <div id="pinError" style="color:#ffb3a7;font-size:.82rem;min-height:18px;text-align:center;margin-bottom:8px"></div>
+      <div class="pin-pad">
+        <button class="pin-btn" onclick="pinDigit(1)">1</button>
+        <button class="pin-btn" onclick="pinDigit(2)">2</button>
+        <button class="pin-btn" onclick="pinDigit(3)">3</button>
+        <button class="pin-btn" onclick="pinDigit(4)">4</button>
+        <button class="pin-btn" onclick="pinDigit(5)">5</button>
+        <button class="pin-btn" onclick="pinDigit(6)">6</button>
+        <button class="pin-btn" onclick="pinDigit(7)">7</button>
+        <button class="pin-btn" onclick="pinDigit(8)">8</button>
+        <button class="pin-btn" onclick="pinDigit(9)">9</button>
+        <button class="pin-btn" onclick="pinClear()" style="font-size:.9rem">&#x232B;</button>
+        <button class="pin-btn" onclick="pinDigit(0)">0</button>
+        <button class="pin-btn" onclick="pinBack()" style="font-size:.9rem">&#x21A9;</button>
+      </div>
+      <button class="btn-back" onclick="showUserSel()">&#x2190; Changer d'utilisateur</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== APP ==================== -->
+<div id="appContainer">
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-header-inner">
+        <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBAUEBAYFBQUGBgYHCQ4JCQgICRINDQoOFRIWFhUSFBQXGiEcFxgfGRQUHScdHyIjJSUlFhwpLCgkKyEkJST/2wBDAQYGBgkICREJCREkGBQYJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCT/wAARCAC0ALQDASIAAhEBAxEB/8QAHAAAAwEAAwEBAAAAAAAAAAAAAAECAwQGBwUI/8QAPxAAAgICAQIDBAUICAcAAAAAAAECAwQRBQYSITFBBxNRcQgiYYGRFBUyQkRistEWIyVDRWWhwTM0UnOisbP/xAAbAQEAAgMBAQAAAAAAAAAAAAAAAQIEBQYDB//EADMRAAIBAwEECAQGAwAAAAAAAAABAgMEETEFIUFhEhMyUXHB0fAUMzSxFSMkYpHhUnKh/9oADAMBAAIRAxEAPwD9KxiWkJItIAEUgSKSABIpIaQ0gBJD0VoNAC0Meg0AIBgALQtFBoAnQtFaDQIIaJaNGiWgDNolo0aJaBJm0RJGrRDQBi4+IGjj4gAWkWkJItIAEikgSKSABIoEMANANIYAtDDQ9ACAYAEhorQtAEtBooWgCRMpoQIIaJaNGS0AZtENGrRDQBm/MCmAJKSLSEikANIpISKAGkPQDAAegQABoegAEAGgAAQDBgkWhDAAloTRQmAS0S0WyWAQyWi2SwQZteIDYAktFIlFIApFIlFIAaKEMAB6EPYAAZ5OTRh0TyMm6uimtd07LJKMYr4tvyPn8H1RwvUv5R+Z+Sx85Y7UbXTLuUW968fuZKi2s43FcpPDZ9QBWWQqhKyyUYQitylJ6SXxbOtX+0zo7HslXZ1Dg90Xp9snJfik0WjTlPsrJEqkIdp4OzAfCxeuem82v3mPy1FkPilL+Rv/AEs4R/4jT/r/ACMSd3QpycJzSa4NoyI0KkkpRi2nyPrCCucbYRsg9xklJP4pjZkJ5PLQTEMTAJYmUyWASyWWyGAQ0APzAApFohFoEDRRKLBI0MSGAA0IAD88/SX6ozHzeB03C2UMKGOsu2CelebSvTbXa8J7SKFv5K/RLZ+Tx85Y7UbXTLuUW968fuZKi2s43FcpPDZ9QBWWQqhKyyUYQitylJ6SXxbOtX+0zo7HslXZ1Dg90Xp9snJfik0WjTlPsrJEqkIdp4OzAfCxeuem82v3mPy1FkPilL+Rv/AEs4R/4jT/r/ACMSd3QpycJzSa4NoyI0KkkpRi2nyPrCCucbYRsg9xklJP4pjZkJ5PLQTEMTAJYmUyWASyWWyGAQ0APzAApFohFoEDRRKLBI0MSGAA0IAD88/SX6ozHzeB03C2UMKGOsu2CelebSvTbXa8J7SKFv5K/RLZ" alt="KG">
+        <div>
+          <div class="sidebar-title">ERP Artisanat</div>
+          <div class="sidebar-version">v4.0 &bull; Google Sheets</div>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-entity" id="sidebarEntity" style="display:none"></div>
+    <nav><ul>
+      <li class="nav-section-title">Tableau de bord</li>
+      <li class="nav-item"><button class="nav-link" data-page="dashboard"><span class="icon">&#x1F3E0;</span> Accueil</button></li>
+      <li class="nav-section-title">Finance</li>
+      <li class="nav-item" data-section="finance"><button class="nav-link" data-page="encaissements"><span class="icon">&#x2B06;&#xFE0F;</span> Encaissements</button></li>
+      <li class="nav-item" data-section="finance"><button class="nav-link" data-page="decaissements"><span class="icon">&#x2B07;&#xFE0F;</span> D&eacute;caissements</button></li>
+      <li class="nav-item" data-section="finance"><button class="nav-link" data-page="tresorerie"><span class="icon">&#x1F4B3;</span> Tr&eacute;sorerie</button></li>
+      <li class="nav-section-title">Commerce</li>
+      <li class="nav-item" data-section="commerce"><button class="nav-link" data-page="ventes"><span class="icon">&#x1F6CD;</span> Ventes</button></li>
+      <li class="nav-item" data-section="commerce"><button class="nav-link" data-page="achats"><span class="icon">&#x1F6D2;</span> Achats</button></li>
+      <li class="nav-item" data-section="commerce"><button class="nav-link" data-page="stocks"><span class="icon">&#x1F4E6;</span> Stocks</button></li>
+      <li class="nav-section-title">Rapports</li>
+      <li class="nav-item" data-section="reports"><button class="nav-link" data-page="comptabilite"><span class="icon">&#x1F4C8;</span> Comptabilit&eacute;</button></li>
+      <li class="nav-item" data-section="reports"><button class="nav-link" data-page="rapports"><span class="icon">&#x1F4C4;</span> Rapports</button></li>
+      <li class="nav-item" data-section="reports"><button class="nav-link" data-page="journal"><span class="icon">&#x1F4DC;</span> Journal</button></li>
+      <li class="nav-section-title">Syst&egrave;me</li>
+      <li class="nav-item" data-admin="1"><button class="nav-link" data-page="parametres"><span class="icon">&#x2699;&#xFE0F;</span> Param&egrave;tres</button></li>
+      <li class="nav-item"><button class="nav-link" data-page="profil"><span class="icon">&#x1F464;</span> Profil</button></li>
+    </ul></nav>
+    <div class="sidebar-footer">
+      <div class="user-badge" id="sidebarUser"></div>
+      <button class="btn-logout" onclick="app.logout()">&#x1F6AA; D&eacute;connexion</button>
+    </div>
+  </aside>
+
+  <div class="main-content">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="toggleSidebar()" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--text-light);display:none" id="menuBtn">&#x2630;</button>
+        <div class="topbar-title">
+          <h2 id="pageTitle">Tableau de Bord</h2>
+          <p id="pageSubtitle">Vue d'ensemble</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <div class="sync-pill" id="syncPill">
+          <span class="sdot connecting" id="syncDot"></span>
+          <span id="syncTxt">Sync...</span>
+        </div>
+        <button class="btn btn-sm btn-outline" onclick="app.manualSync()" title="Synchroniser">&#x1F501;</button>
+        <button class="btn btn-sm btn-secondary" onclick="app.showAdd()" id="btnAdd">+ Ajouter</button>
+      </div>
+    </div>
+    <div class="content" id="mainContent"></div>
+  </div>
+
+  <!-- Mobile nav -->
+  <nav class="mobile-nav"><ul>
+    <li><button class="mobile-nav-btn" data-page="dashboard"><span class="icon">&#x1F3E0;</span>Accueil</button></li>
+    <li><button class="mobile-nav-btn" data-page="ventes"><span class="icon">&#x1F6CD;</span>Ventes</button></li>
+    <li><button class="mobile-nav-btn" data-page="stocks"><span class="icon">&#x1F4E6;</span>Stocks</button></li>
+    <li><button class="mobile-nav-btn" data-page="tresorerie"><span class="icon">&#x1F4B3;</span>Tr&eacute;so</button></li>
+    <li><button class="mobile-nav-btn" data-page="profil"><span class="icon">&#x1F464;</span>Profil</button></li>
+  </ul></nav>
+  <button class="mobile-fab" onclick="app.showAdd()">+</button>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modalTitle">-</span>
+      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ================================================================
+//  ERP ARTISANAT v4.0  –  Google Sheets Backend
+//  Kayely Group  |  Arthur Tra Bi Kalou
+// ================================================================
+
+// ---- USERS ----
+const USERS = [
+  {id:0,nom:'Admin',     role:'Administrateur', pin:'0000', icon:'&#x2699;&#xFE0F;'},
+  {id:1,nom:'Gerant',    role:'Gerant',         pin:'1234', icon:'&#x1F451;'},
+  {id:2,nom:'Comptable', role:'Comptable',       pin:'5678', icon:'&#x1F4CA;'},
+  {id:3,nom:'Vendeur',   role:'Vendeur',         pin:'9090', icon:'&#x1F6D2;'},
+];
+
+// ---- NAV ACCESS ----
+const NAV_ACCESS = {
+  Administrateur:['dashboard','encaissements','decaissements','tresorerie','ventes','achats','stocks','comptabilite','rapports','journal','profil','parametres'],
+  Gerant:        ['dashboard','encaissements','decaissements','tresorerie','ventes','achats','stocks','comptabilite','rapports','journal','profil'],
+  Comptable:     ['dashboard','encaissements','decaissements','tresorerie','achats','comptabilite','rapports','journal','profil'],
+  Vendeur:       ['dashboard','ventes','stocks','profil'],
+};
+
+// ---- PIN ----
+let pinBuf = '', selUser = null;
+function showUserSel(){
+  document.getElementById('userSelView').style.display='';
+  document.getElementById('pinView').classList.remove('show');
+  pinBuf=''; updatePinDots();
+}
+function renderUsers(){
+  const grid=document.getElementById('usersGrid');
+  grid.innerHTML=USERS.map(u=>`
+    <button class="user-card-btn" onclick="selectUser(${u.id})">
+      <span class="u-online"></span>
+      <span class="u-icon">${u.icon}</span>
+      <span class="u-name">${u.nom}</span>
+      <span class="u-role">${u.role}</span>
+    </button>`).join('');
+}
+function selectUser(id){
+  selUser=USERS.find(u=>u.id===id);
+  document.getElementById('selIcon').innerHTML=selUser.icon;
+  document.getElementById('selName').textContent=selUser.nom;
+  document.getElementById('selRole').textContent=selUser.role;
+  document.getElementById('userSelView').style.display='none';
+  document.getElementById('pinView').classList.add('show');
+  document.getElementById('pinError').textContent='';
+  pinBuf=''; updatePinDots();
+}
+function pinDigit(d){
+  if(pinBuf.length>=4) return;
+  pinBuf+=String(d); updatePinDots();
+  if(pinBuf.length===4) checkPin();
+}
+function pinClear(){pinBuf='';updatePinDots();document.getElementById('pinError').textContent='';}
+function pinBack(){if(pinBuf.length>0){pinBuf=pinBuf.slice(0,-1);updatePinDots();}}
+function updatePinDots(){
+  for(let i=0;i<4;i++){
+    document.getElementById('pd'+i).classList.toggle('filled',i<pinBuf.length);
+  }
+}
+function checkPin(){
+  if(pinBuf===selUser.pin){
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('appContainer').style.display='flex';
+    app.start(selUser);
+  } else {
+    document.getElementById('pinError').textContent='PIN incorrect. Rép&eacute;tez.';
+    pinBuf=''; updatePinDots();
+  }
+}
+
+// ---- KEYBOARD PIN ----
+document.addEventListener('keydown',e=>{
+  const pv=document.getElementById('pinView');
+  if(pv.classList.contains('show')){
+    if(e.key>='0'&&e.key<='9') pinDigit(parseInt(e.key));
+    if(e.key==='Backspace') pinBack();
+    if(e.key==='Escape') showUserSel();
+  }
+});
+
+// ================================================================
+//  GOOGLE SHEETS SYNC
+// ================================================================
+class SheetsSync {
+  constructor(){
+    this.apiKey   = localStorage.getItem('gs_api_key')||'';
+    this.sheetId  = localStorage.getItem('gs_sheet_id')||'';
+    this.online   = navigator.onLine;
+    this.syncing  = false;
+    this.lastSync = localStorage.getItem('gs_last_sync')||null;
+    window.addEventListener('online', ()=>{ this.online=true; this.updateUI(); });
+    window.addEventListener('offline',()=>{ this.online=false; this.updateUI(); });
+  }
+  get configured(){ return this.apiKey && this.sheetId; }
+  save(key,val){ localStorage.setItem('gs_'+key,val||''); }
+
+  // Lire une feuille → tableau de lignes
+  async readSheet(sheetName){
+    if(!this.configured) return [];
+    try{
+      const url=`https://sheets.googleapis.com/v4/spreadsheets/${this.sheetId}/values/${encodeURIComponent(sheetName)}?key=${this.apiKey}`;
+      const r=await fetch(url);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const d=await r.json();
+      const rows=d.values||[];
+      if(rows.length<2) return [];
+      const headers=rows[0];
+      return rows.slice(1).map(row=>{
+        const obj={};
+        headers.forEach((h,i)=>{ obj[h]=row[i]||''; });
+        return obj;
+      });
+    }catch(e){ console.warn('readSheet',sheetName,e.message); return []; }
+  }
+
+  // Écrire une ligne
+  async appendRow(sheetName, rowData){
+    if(!this.configured||!this.online) return false;
+    try{
+      const url=`https://sheets.googleapis.com/v4/spreadsheets/${this.sheetId}/values/${encodeURIComponent(sheetName)}:append?valueInputOption=USER_ENTERED&key=${this.apiKey}`;
+      const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({values:[rowData]})});
+      return r.ok;
+    }catch(e){ return false; }
+  }
+
+  // Mettre à jour l'UI sync
+  updateUI(){
+    const dot=document.getElementById('syncDot');
+    const txt=document.getElementById('syncTxt');
+    const ldot=document.getElementById('loginDot');
+    const ltxt=document.getElementById('loginSyncTxt');
+    if(!dot) return;
+    if(!this.configured){
+      dot.className='sdot offline';txt.textContent='Non config.';
+      if(ldot){ ldot.className='sdot offline'; ltxt.textContent='Mode local – Google Sheets non config.'; }
+    } else if(!this.online){
+      dot.className='sdot offline';txt.textContent='Hors ligne';
+      if(ldot){ ldot.className='sdot offline'; ltxt.textContent='Pas de connexion internet'; }
+    } else if(this.syncing){
+      dot.className='sdot connecting';txt.textContent='Synchro...';
+      if(ldot){ ldot.className='sdot connecting'; ltxt.textContent='Synchronisation...'; }
+    } else {
+      const t=this.lastSync?new Date(this.lastSync).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';
+      dot.className='sdot online';txt.textContent='Sync'+( t?' '+t:'');
+      if(ldot){ ldot.className='sdot online'; ltxt.textContent='Connecté – Google Sheets actif'; }
+    }
+  }
+
+  async testConnection(){
+    if(!this.configured) return false;
+    try{
+      const url=`https://sheets.googleapis.com/v4/spreadsheets/${this.sheetId}?key=${this.apiKey}`;
+      const r=await fetch(url); return r.ok;
+    }catch(e){ return false; }
+  }
+}
+
+// ================================================================
+//  INDEXED DB  (stockage local offline-first)
+// ================================================================
+class LocalDB {
+  constructor(){ this.db=null; }
+  async init(){
+    return new Promise((res,rej)=>{
+      const req=indexedDB.open('ERP_Artisanat_v4',1);
+      req.onupgradeneeded=e=>{
+        const db=e.target.result;
+        const stores=['encaissements','decaissements','ventes','achats','stocks','journal','sync_queue','parametres'];
+        stores.forEach(s=>{
+          if(!db.objectStoreNames.contains(s)){
+            const os=db.createObjectStore(s,{keyPath:'id',autoIncrement:true});
+            if(s!=='parametres'&&s!=='sync_queue') os.createIndex('date','date');
+          }
+        });
+      };
+      req.onsuccess=e=>{ this.db=e.target.result; res(); };
+      req.onerror=e=>rej(e);
+    });
+  }
+  async getAll(store){
+    return new Promise((res,rej)=>{
+      const tx=this.db.transaction(store,'readonly');
+      const req=tx.objectStore(store).getAll();
+      req.onsuccess=()=>res(req.result);
+      req.onerror=()=>rej(req.error);
+    });
+  }
+  async add(store,data){
+    return new Promise((res,rej)=>{
+      const tx=this.db.transaction(store,'readwrite');
+      const req=tx.objectStore(store).add({...data,id:undefined});
+      req.onsuccess=()=>res(req.result);
+      req.onerror=()=>rej(req.error);
+    });
+  }
+  async put(store,data){
+    return new Promise((res,rej)=>{
+      const tx=this.db.transaction(store,'readwrite');
+      const req=tx.objectStore(store).put(data);
+      req.onsuccess=()=>res(req.result);
+      req.onerror=()=>rej(req.error);
+    });
+  }
+  async delete(store,id){
+    return new Promise((res,rej)=>{
+      const tx=this.db.transaction(store,'readwrite');
+      const req=tx.objectStore(store).delete(id);
+      req.onsuccess=()=>res();
+      req.onerror=()=>rej(req.error);
+    });
+  }
+  async getParam(key){
+    return new Promise(res=>{
+      const tx=this.db.transaction('parametres','readonly');
+      const req=tx.objectStore('parametres').get(key);
+      req.onsuccess=()=>res(req.result?req.result.value:'');
+      req.onerror=()=>res('');
+    });
+  }
+  async setParam(key,value){
+    return new Promise((res,rej)=>{
+      const tx=this.db.transaction('parametres','readwrite');
+      const req=tx.objectStore('parametres').put({id:key,value});
+      req.onsuccess=()=>res();
+      req.onerror=()=>rej(req.error);
+    });
+  }
+  async clear(store){
+    return new Promise((res,rej)=>{
+      const tx=this.db.transaction(store,'readwrite');
+      const req=tx.objectStore(store).clear();
+      req.onsuccess=()=>res();
+      req.onerror=()=>rej(req.error);
+    });
+  }
+}
+
+// ================================================================
+//  APP PRINCIPAL
+// ================================================================
+class ERPApp {
+  constructor(){
+    this.db=new LocalDB();
+    this.sync=new SheetsSync();
+    this.user=null;
+    this.page='dashboard';
+  }
+
+  async start(user){
+    this.user=user;
+    await this.db.init();
+    // Appliquer permissions nav
+    this.applyNav();
+    // Afficher user dans sidebar
+    document.getElementById('sidebarUser').innerHTML=`
+      <span class="ub-icon" style="font-size:1.2rem">${user.icon}</span>
+      <div><div class="ub-name">${user.nom}</div><div class="ub-role">${user.role}</div></div>`;
+    // Afficher entity
+    const en=await this.db.getParam('entite_nom');
+    if(en){ const el=document.getElementById('sidebarEntity'); el.textContent=en; el.style.display=''; }
+    // Menu btn mobile
+    document.getElementById('menuBtn').style.display='flex';
+    // Nav events
+    document.querySelectorAll('.nav-link,[class*=mobile-nav-btn]').forEach(btn=>{
+      btn.addEventListener('click',()=>{ const pg=btn.dataset.page; if(pg) this.nav(pg); closeSidebar(); });
+    });
+    // Sync
+    this.sync.updateUI();
+    await this.manualSync();
+    setInterval(()=>this.manualSync(),60000);
+    this.nav('dashboard');
+  }
+
+  applyNav(){
+    const allowed=NAV_ACCESS[this.user.role]||[];
+    document.querySelectorAll('.nav-item').forEach(li=>{
+      const btn=li.querySelector('[data-page]');
+      if(btn){ li.style.display=allowed.includes(btn.dataset.page)?'':'none'; }
+    });
+    // Cacher bouton Ajouter pour certaines pages
+    this.updateAddBtn();
+  }
+
+  nav(page){
+    const allowed=NAV_ACCESS[this.user.role]||[];
+    if(!allowed.includes(page)){ toast('Accès non autorisé','error'); return; }
+    this.page=page;
+    // Active nav
+    document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
+    // Titre
+    const titles={
+      dashboard:'Tableau de Bord',encaissements:'Encaissements',decaissements:'Décaissements',
+      tresorerie:'Trésorerie',ventes:'Ventes',achats:'Achats',stocks:'Stocks',
+      comptabilite:'Comptabilité',rapports:'Rapports',journal:'Journal d\'Activité',
+      profil:'Profil',parametres:'Paramètres'
+    };
+    document.getElementById('pageTitle').textContent=titles[page]||page;
+    this.updateAddBtn();
+    this.render(page);
+  }
+
+  updateAddBtn(){
+    const btn=document.getElementById('btnAdd');
+    const fab=document.querySelector('.mobile-fab');
+    const show=['encaissements','decaissements','ventes','achats','stocks'];
+    const role=this.user?this.user.role:'';
+    const canAdd=show.includes(this.page)&&(role!=='Comptable'||['encaissements','decaissements','achats'].includes(this.page));
+    btn.style.display=canAdd?'':'none';
+    if(fab) fab.style.display=canAdd?'':'none';
+  }
+
+  async render(page){
+    const c=document.getElementById('mainContent');
+    switch(page){
+      case 'dashboard':     await this.renderDashboard(); break;
+      case 'encaissements': await this.renderList('encaissements','Encaissement'); break;
+      case 'decaissements': await this.renderList('decaissements','Décaissement'); break;
+      case 'tresorerie':    await this.renderTresorerie(); break;
+      case 'ventes':        await this.renderList('ventes','Vente'); break;
+      case 'achats':        await this.renderList('achats','Achat'); break;
+      case 'stocks':        await this.renderStocks(); break;
+      case 'comptabilite':  await this.renderCompta(); break;
+      case 'rapports':      await this.renderRapports(); break;
+      case 'journal':       await this.renderJournal(); break;
+      case 'profil':        await this.renderProfil(); break;
+      case 'parametres':    await this.renderParametres(); break;
+      default: c.innerHTML='<div class="empty-state"><div class="ei">🚧</div><p>Page en cours...</p></div>';
+    }
+  }
+
+  // ------ FORMAT ------
+  fmt(n){ return Number(n||0).toLocaleString('fr-FR',{minimumFractionDigits:0})+' FCFA'; }
+  fmtDate(s){ if(!s) return '-'; try{ return new Date(s).toLocaleDateString('fr-FR'); }catch(e){ return s; } }
+  today(){ return new Date().toISOString().slice(0,10); }
+
+  // ------ LOG ------
+  async log(action,detail){
+    await this.db.add('journal',{date:new Date().toISOString(),user:this.user.nom,
+      role:this.user.role,action,detail});
+  }
+
+  // ------ SYNC ------
+  async manualSync(){
+    if(!this.sync.configured||!this.sync.online) { this.sync.updateUI(); return; }
+    this.sync.syncing=true; this.sync.updateUI();
+    try{
+      // Pousser la queue offline
+      const q=await this.db.getAll('sync_queue');
+      for(const item of q){
+        const ok=await this.sync.appendRow(item.sheet,item.row);
+        if(ok) await this.db.delete('sync_queue',item.id);
+      }
+      // Pull les données des 4 feuilles principales
+      for(const sheet of ['encaissements','decaissements','ventes','achats','stocks']){
+        const rows=await this.sync.readSheet(sheet);
+        if(rows.length>0){
+          await this.db.clear(sheet);
+          for(const row of rows){
+            const obj={}; Object.keys(row).forEach(k=>obj[k]=row[k]);
+            if(obj.montant) obj.montant=parseFloat(obj.montant)||0;
+            if(obj.quantite) obj.quantite=parseFloat(obj.quantite)||0;
+            if(obj.prix_unitaire) obj.prix_unitaire=parseFloat(obj.prix_unitaire)||0;
+            delete obj.id;
+            await this.db.add(sheet,obj);
+          }
+        }
+      }
+      this.sync.lastSync=new Date().toISOString();
+      localStorage.setItem('gs_last_sync',this.sync.lastSync);
+    }catch(e){ console.warn('Sync error',e); }
+    this.sync.syncing=false; this.sync.updateUI();
+  }
+
+  async pushToSheet(sheet,row){
+    if(this.sync.configured&&this.sync.online){
+      const ok=await this.sync.appendRow(sheet,row);
+      if(!ok) await this.db.add('sync_queue',{sheet,row,date:new Date().toISOString()});
+    } else if(this.sync.configured){
+      await this.db.add('sync_queue',{sheet,row,date:new Date().toISOString()});
+    }
+  }
+
+  // ------ DASHBOARD ------
+  async renderDashboard(){
+    const [enc,dec,ventes,achats,stocks]=await Promise.all([
+      this.db.getAll('encaissements'),this.db.getAll('decaissements'),
+      this.db.getAll('ventes'),this.db.getAll('achats'),this.db.getAll('stocks')
+    ]);
+    const today=this.today();
+    const totalEnc=enc.filter(e=>e.date===today).reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const totalDec=dec.filter(e=>e.date===today).reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const caTotal=ventes.reduce((s,v)=>s+parseFloat(v.montant||0),0);
+    const solde=enc.reduce((s,e)=>s+parseFloat(e.montant||0),0)-dec.reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const alertes=stocks.filter(s=>parseFloat(s.quantite||0)<=parseFloat(s.seuil||0)).length;
+    const en=await this.db.getParam('entite_nom');
+    const elo=await this.db.getParam('entite_logo');
+    const ev=await this.db.getParam('entite_ville');
+    let html='';
+    if(en) html+=`<div class="entity-banner">${elo?`<img src="${elo}" alt="">`:''}<div><div class="eb-name">${en}</div><div class="eb-sub">${ev?ev+' &bull; ':''}<span style="color:var(--secondary)">ERP Artisanat</span></div></div></div>`;
+    html+=`<div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon blue">&#x1F4B0;</div><div><div class="kpi-label">Solde Tréso.</div><div class="kpi-value ${solde<0?'color-danger':''}">${this.fmt(solde)}</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon green">&#x2B06;</div><div><div class="kpi-label">Enc. Aujourd'hui</div><div class="kpi-value color-success">${this.fmt(totalEnc)}</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon red">&#x2B07;</div><div><div class="kpi-label">Déc. Aujourd'hui</div><div class="kpi-value color-danger">${this.fmt(totalDec)}</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon orange">&#x1F6CD;</div><div><div class="kpi-label">CA Total</div><div class="kpi-value">${this.fmt(caTotal)}</div></div></div>
+    </div>`;
+    if(alertes>0) html+=`<div class="alert alert-warning">&#x26A0;&#xFE0F; <strong>${alertes} article(s)</strong> en dessous du seuil de stock minimal.</div>`;
+    // Dernières opérations
+    const recent=[...enc.slice(-5).map(e=>({...e,_type:'Encaissement'})),
+                  ...dec.slice(-5).map(e=>({...e,_type:'Décaissement'})),
+                  ...ventes.slice(-5).map(e=>({...e,_type:'Vente'}))]
+      .sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,8);
+    html+=`<div class="card"><div class="card-header"><span class="card-title">&#x1F552; Dernières opérations</span></div><div class="card-body"><div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Type</th><th>Libellé</th><th class="text-right">Montant</th></tr></thead><tbody>`;
+    if(!recent.length) html+='<tr><td colspan="4" class="empty-state" style="padding:24px">Aucune opération enregistrée.</td></tr>';
+    recent.forEach(r=>{
+      const col=r._type==='Encaissement'?'success':r._type==='Décaissement'?'danger':'warning';
+      html+=`<tr><td>${this.fmtDate(r.date)}</td><td><span class="badge badge-${col}">${r._type}</span></td><td>${r.libelle||r.client||r.description||'-'}</td><td class="text-right fw-bold">${this.fmt(r.montant||0)}</td></tr>`;
+    });
+    html+=`</tbody></table></div></div></div>`;
+    document.getElementById('mainContent').innerHTML=html;
+  }
+
+  // ------ LISTE GÉNÉRIQUE ------
+  async renderList(store, label){
+    const items=await this.db.getAll(store);
+    const canEdit=this.canEdit(store);
+    const canDel=this.canDelete();
+    const sorted=[...items].sort((a,b)=>new Date(b.date)-new Date(a.date));
+    const total=sorted.reduce((s,i)=>s+parseFloat(i.montant||0),0);
+    let html=`<div class="section-header">
+      <span style="color:var(--text-light);font-size:.85rem">${items.length} enreg. &bull; Total: <strong>${this.fmt(total)}</strong></span>
+    </div>
+    <div class="card"><div class="card-body"><div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Mode</th><th class="text-right">Montant</th>${canEdit||canDel?'<th>Actions</th>':''}</tr></thead><tbody>`;
+    if(!sorted.length) html+='<tr><td colspan="6"><div class="empty-state"><div class="ei">📂</div><p>Aucune donnée. Cliquez sur "+ Ajouter".</p></div></td></tr>';
+    sorted.forEach(i=>{
+      html+=`<tr>
+        <td>${this.fmtDate(i.date)}</td>
+        <td><strong>${i.libelle||i.client||i.fournisseur||i.description||'-'}</strong></td>
+        <td>${i.categorie||i.type_vente||'-'}</td>
+        <td>${i.mode_paiement||i.mode||'-'}</td>
+        <td class="text-right fw-bold">${this.fmt(i.montant||0)}</td>
+        ${canEdit||canDel?`<td><button class="btn-icon edit" onclick="app.editItem('${store}',${i.id})">&#x270F;</button>${canDel?`<button class="btn-icon del" onclick="app.deleteItem('${store}',${i.id})">&#x1F5D1;</button>`:''}</td>`:''}
+      </tr>`;
+    });
+    html+=`</tbody></table></div></div></div>`;
+    document.getElementById('mainContent').innerHTML=html;
+  }
+
+  // ------ TRESORERIE ------
+  async renderTresorerie(){
+    const [enc,dec]=await Promise.all([this.db.getAll('encaissements'),this.db.getAll('decaissements')]);
+    const soldeInit=parseFloat(await this.db.getParam('solde_initial'))||0;
+    const totalEnc=enc.reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const totalDec=dec.reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const solde=soldeInit+totalEnc-totalDec;
+    // Par mois
+    const byMonth={};
+    [...enc.map(e=>({...e,sens:1})),...dec.map(e=>({...e,sens:-1}))].forEach(op=>{
+      const m=(op.date||'').slice(0,7);
+      if(!m) return;
+      if(!byMonth[m]) byMonth[m]={enc:0,dec:0};
+      if(op.sens>0) byMonth[m].enc+=parseFloat(op.montant||0);
+      else byMonth[m].dec+=parseFloat(op.montant||0);
+    });
+    const months=Object.keys(byMonth).sort().slice(-6);
+    let html=`<div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon blue">&#x1F4B3;</div><div><div class="kpi-label">Solde Actuel</div><div class="kpi-value ${solde<0?'color-danger':'color-success'}">${this.fmt(solde)}</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon green">&#x2B06;</div><div><div class="kpi-label">Total Encaissements</div><div class="kpi-value">${this.fmt(totalEnc)}</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon red">&#x2B07;</div><div><div class="kpi-label">Total Décaissements</div><div class="kpi-value">${this.fmt(totalDec)}</div></div></div>
+    </div>`;
+    if(months.length){
+      html+=`<div class="card"><div class="card-header"><span class="card-title">&#x1F4CA; Évolution mensuelle (6 derniers mois)</span></div><div class="card-body"><div class="table-wrap"><table>
+        <thead><tr><th>Mois</th><th class="text-right">Encaissements</th><th class="text-right">Décaissements</th><th class="text-right">Solde net</th></tr></thead><tbody>`;
+      months.forEach(m=>{
+        const {enc:e,dec:d}=byMonth[m];
+        const net=e-d;
+        html+=`<tr><td>${m}</td><td class="text-right color-success">${this.fmt(e)}</td><td class="text-right color-danger">${this.fmt(d)}</td><td class="text-right fw-bold ${net<0?'color-danger':'color-success'}">${this.fmt(net)}</td></tr>`;
+      });
+      html+=`</tbody></table></div></div></div>`;
+    }
+    document.getElementById('mainContent').innerHTML=html;
+  }
+
+  // ------ STOCKS ------
+  async renderStocks(){
+    const items=await this.db.getAll('stocks');
+    const canEdit=this.canEdit('stocks');
+    const canDel=this.canDelete();
+    let html=`<div class="section-header">
+      <span style="color:var(--text-light);font-size:.85rem">${items.length} article(s)</span>
+    </div>
+    <div class="card"><div class="card-body"><div class="table-wrap"><table>
+    <thead><tr><th>Désignation</th><th>Catégorie</th><th class="text-right">Qté</th><th class="text-right">Seuil</th><th class="text-right">Prix Unit.</th><th>Statut</th>${canEdit||canDel?'<th>Actions</th>':''}</tr></thead><tbody>`;
+    if(!items.length) html+='<tr><td colspan="7"><div class="empty-state"><div class="ei">📦</div><p>Aucun article en stock.</p></div></td></tr>';
+    items.forEach(s=>{
+      const q=parseFloat(s.quantite||0), seuil=parseFloat(s.seuil||0);
+      const status=q<=0?'Épuisé':q<=seuil?'Alerte':'OK';
+      const badgeCls=q<=0?'badge-danger':q<=seuil?'badge-warning':'badge-success';
+      html+=`<tr>
+        <td><strong>${s.designation||s.article||'-'}</strong></td>
+        <td>${s.categorie||'-'}</td>
+        <td class="text-right">${q}</td>
+        <td class="text-right">${seuil}</td>
+        <td class="text-right">${this.fmt(s.prix_unitaire||0)}</td>
+        <td><span class="badge ${badgeCls}">${status}</span></td>
+        ${canEdit||canDel?`<td><button class="btn-icon edit" onclick="app.editItem('stocks',${s.id})">&#x270F;</button>${canDel?`<button class="btn-icon del" onclick="app.deleteItem('stocks',${s.id})">&#x1F5D1;</button>`:''}</td>`:''}
+      </tr>`;
+    });
+    html+=`</tbody></table></div></div></div>`;
+    document.getElementById('mainContent').innerHTML=html;
+  }
+
+  // ------ COMPTABILITE ------
+  async renderCompta(){
+    const [enc,dec,ventes,achats]=await Promise.all([
+      this.db.getAll('encaissements'),this.db.getAll('decaissements'),
+      this.db.getAll('ventes'),this.db.getAll('achats')
+    ]);
+    const totalE=enc.reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const totalD=dec.reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const totalV=ventes.reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const totalA=achats.reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const resultat=totalV-totalA;
+    let html=`<div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon green">&#x1F4C8;</div><div><div class="kpi-label">Produits (CA)</div><div class="kpi-value">${this.fmt(totalV)}</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon red">&#x1F4C9;</div><div><div class="kpi-label">Charges (Achats)</div><div class="kpi-value">${this.fmt(totalA)}</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon ${resultat>=0?'green':'red'}">&#x2696;</div><div><div class="kpi-label">Résultat</div><div class="kpi-value ${resultat<0?'color-danger':'color-success'}">${this.fmt(resultat)}</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon blue">&#x1F4B3;</div><div><div class="kpi-label">Flux net</div><div class="kpi-value ${totalE-totalD<0?'color-danger':''}">${this.fmt(totalE-totalD)}</div></div></div>
+    </div>
+    <div class="card"><div class="card-header"><span class="card-title">&#x1F4CB; Journal comptable simplifié</span></div><div class="card-body"><div class="table-wrap"><table>
+      <thead><tr><th>Compte</th><th>Intitulé</th><th class="text-right">Débit</th><th class="text-right">Crédit</th></tr></thead><tbody>
+      <tr><td>701</td><td>Ventes de marchandises</td><td></td><td class="text-right">${this.fmt(totalV)}</td></tr>
+      <tr><td>601</td><td>Achats de marchandises</td><td class="text-right">${this.fmt(totalA)}</td><td></td></tr>
+      <tr><td>5311</td><td>Encaissements (Caisse)</td><td class="text-right">${this.fmt(totalE)}</td><td></td></tr>
+      <tr><td>4011</td><td>Décaissements (Fournisseurs)</td><td></td><td class="text-right">${this.fmt(totalD)}</td></tr>
+      </tbody></table></div></div></div>`;
+    document.getElementById('mainContent').innerHTML=html;
+  }
+
+  // ------ RAPPORTS ------
+  async renderRapports(){
+    const [enc,dec,ventes,achats,stocks]=await Promise.all([
+      this.db.getAll('encaissements'),this.db.getAll('decaissements'),
+      this.db.getAll('ventes'),this.db.getAll('achats'),this.db.getAll('stocks')
+    ]);
+    const totalV=ventes.reduce((s,v)=>s+parseFloat(v.montant||0),0);
+    const totalA=achats.reduce((s,a)=>s+parseFloat(a.montant||0),0);
+    const totalE=enc.reduce((s,e)=>s+parseFloat(e.montant||0),0);
+    const totalD=dec.reduce((s,d)=>s+parseFloat(d.montant||0),0);
+    const valStock=stocks.reduce((s,st)=>s+parseFloat(st.quantite||0)*parseFloat(st.prix_unitaire||0),0);
+    let html=`<div class="card"><div class="card-header"><span class="card-title">&#x1F4CB; Rapport de synthèse</span>
+      <button class="btn btn-sm btn-outline" onclick="window.print()">&#x1F5A8; Imprimer</button></div>
+      <div class="card-body"><div class="table-wrap"><table>
+        <thead><tr><th>Indicateur</th><th class="text-right">Valeur</th></tr></thead><tbody>
+        <tr><td>Chiffre d'Affaires total</td><td class="text-right fw-bold color-success">${this.fmt(totalV)}</td></tr>
+        <tr><td>Total Achats</td><td class="text-right fw-bold color-danger">${this.fmt(totalA)}</td></tr>
+        <tr><td>Marge brute</td><td class="text-right fw-bold">${this.fmt(totalV-totalA)}</td></tr>
+        <tr><td>Total Encaissements</td><td class="text-right">${this.fmt(totalE)}</td></tr>
+        <tr><td>Total Décaissements</td><td class="text-right">${this.fmt(totalD)}</td></tr>
+        <tr><td>Solde de trésorerie</td><td class="text-right fw-bold ${totalE-totalD<0?'color-danger':'color-success'}">${this.fmt(totalE-totalD)}</td></tr>
+        <tr><td>Valeur du stock</td><td class="text-right">${this.fmt(valStock)}</td></tr>
+        <tr><td>Nbre articles en stock</td><td class="text-right">${stocks.length}</td></tr>
+        <tr><td>Articles en alerte</td><td class="text-right color-danger">${stocks.filter(s=>parseFloat(s.quantite||0)<=parseFloat(s.seuil||0)).length}</td></tr>
+        </tbody></table></div></div></div>`;
+    document.getElementById('mainContent').innerHTML=html;
+  }
+
+  // ------ JOURNAL ------
+  async renderJournal(){
+    const items=await this.db.getAll('journal');
+    const sorted=[...items].sort((a,b)=>new Date(b.date)-new Date(a.date));
+    let html=`<div class="card"><div class="card-header"><span class="card-title">&#x1F4DC; Journal d'activité</span>
+      ${this.isAdmin()?'<button class="btn btn-sm btn-danger" onclick="app.clearJournal()">Vider</button>':''}
+    </div><div class="card-body"><div class="table-wrap"><table>
+      <thead><tr><th>Date/Heure</th><th>Utilisateur</th><th>Rôle</th><th>Action</th><th>Détail</th></tr></thead><tbody>`;
+    if(!sorted.length) html+='<tr><td colspan="5" class="empty-state" style="padding:24px">Journal vide.</td></tr>';
+    sorted.forEach(j=>{
+      const dt=j.date?new Date(j.date).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'}):'';
+      html+=`<tr><td>${dt}</td><td>${j.user||'-'}</td><td><span class="badge badge-info">${j.role||'-'}</span></td><td>${j.action||'-'}</td><td style="color:var(--text-light)">${j.detail||'-'}</td></tr>`;
+    });
+    html+=`</tbody></table></div></div></div>`;
+    document.getElementById('mainContent').innerHTML=html;
+  }
+
+  // ------ PROFIL ------
+  async renderProfil(){
+    const u=this.user;
+    const gsSaved=this.sync.configured;
+    let html=`<div class="card"><div class="card-header"><span class="card-title">&#x1F464; Mon Profil</span></div>
+      <div class="card-body"><div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+        <span style="font-size:3rem">${u.icon}</span>
+        <div><div style="font-size:1.2rem;font-weight:700">${u.nom}</div>
+        <span class="badge badge-info" style="margin-top:4px">${u.role}</span></div>
+      </div>
+      <div class="divider"></div>
+      <p style="font-size:.85rem;color:var(--text-light)">Pour modifier votre PIN ou vos informations, contactez l'Administrateur.</p>
+    </div></div>`;
+    // Sync status
+    html+=`<div class="card"><div class="card-header"><span class="card-title">&#x1F501; Synchronisation Google Sheets</span></div>
+      <div class="card-body">
+        <div class="gs-status-row">
+          <span class="sdot ${gsSaved&&this.sync.online?'online':gsSaved?'offline':'offline'}" style="width:12px;height:12px;flex-shrink:0"></span>
+          <span>${gsSaved?(this.sync.online?'Connecté – Google Sheets actif':'Configuré – Hors ligne'):'Non configuré (mode local uniquement)'}</span>
+        </div>
+        ${gsSaved?`<p style="font-size:.82rem;color:var(--text-light)">Sheet ID: <code>${this.sync.sheetId.slice(0,20)}...</code></p>`:''}
+        ${this.isAdmin()||this.isGerant()?`<button class="btn btn-outline btn-sm" onclick="app.nav('parametres')" style="margin-top:8px">&#x2699;&#xFE0F; Configurer la synchronisation</button>`:''}
+      </div></div>`;
+    // Export
+    if(this.isGerant()||this.isAdmin()){
+      html+=`<div class="card"><div class="card-header"><span class="card-title">&#x1F4BE; Données</span></div>
+        <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="app.exportExcel()">&#x2B07; Exporter Excel</button>
+          <button class="btn btn-success" onclick="app.manualSync()">&#x1F501; Synchroniser maintenant</button>
+        </div></div>`;
+    }
+    document.getElementById('mainContent').innerHTML=html;
+  }
+
+  // ------ PARAMETRES ------
+  async renderParametres(){
+    if(!this.isAdmin()){ toast('R\u00e9serv\u00e9 \u00e0 l\'Administrateur','error'); this.nav('dashboard'); return; }
+    const [nom,adresse,ville,tel,email,rccm,nif,logo,solde,tva]=await Promise.all([
+      this.db.getParam('entite_nom'),this.db.getParam('entite_adresse'),
+      this.db.getParam('entite_ville'),this.db.getParam('entite_tel'),
+      this.db.getParam('entite_email'),this.db.getParam('entite_rccm'),
+      this.db.getParam('entite_nif'),this.db.getParam('entite_logo'),
+      this.db.getParam('solde_initial'),this.db.getParam('tva')
+    ]);
+    const apiKey=this.sync.apiKey, sheetId=this.sync.sheetId;
+    let html=``;
+
+    // ---- Google Sheets ----
+    html+=`<div class="card"><div class="card-header"><span class="card-title">&#x1F4CA; Connexion Google Sheets</span></div>
+      <div class="card-body">
+        <div class="gs-config-box">
+          <div class="gs-status-row">
+            <span class="sdot ${this.sync.configured?'online':'offline'}" style="width:12px;height:12px"></span>
+            <span style="font-weight:600">${this.sync.configured?'Google Sheets configuré':'Pas encore configuré'}</span>
+          </div>
+          <p style="font-size:.82rem;color:var(--text-light);margin-bottom:10px">
+            Données sync. en temps réel avec votre Google Sheet. Tous les appareils partagent les mêmes données.
+          </p>
+          <ol class="gs-steps">
+            <li>Créez un Google Sheet avec les onglets: <code>encaissements</code>, <code>decaissements</code>, <code>ventes</code>, <code>achats</code>, <code>stocks</code> (ligne 1 = en-têtes)</li>
+            <li>Activez l'<a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank">API Google Sheets</a> dans votre projet Google Cloud</li>
+            <li>Créez une clé API sans restriction de domaine (pour les tests), puis collez-la ci-dessous</li>
+            <li>Copiez l'ID de votre Sheet depuis l'URL: <code>https://docs.google.com/spreadsheets/d/<strong>[ID ICI]</strong>/</code></li>
+          </ol>
+        </div>
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label">Clé API Google <span class="req">*</span></label>
+            <input type="password" class="form-control" id="gsApiKey" value="${apiKey}" placeholder="AIzaSy..."></div>
+          <div class="form-group"><label class="form-label">Sheet ID <span class="req">*</span></label>
+            <input type="text" class="form-control" id="gsSheetId" value="${sheetId}" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="app.saveGSConfig()">&#x1F4BE; Enregistrer</button>
+          <button class="btn btn-outline" onclick="app.testGS()">&#x1F9EA; Tester la connexion</button>
+          ${apiKey?'<button class="btn btn-danger" onclick="app.clearGSConfig()">&#x1F5D1; Effacer config.</button>':''}
+        </div>
+        <div id="gsTestResult" style="margin-top:10px;font-size:.85rem"></div>
+      </div></div>`;
+
+    // ---- Entité ----
+    html+=`<div class="card"><div class="card-header"><span class="card-title">&#x1F3E2; Informations de l'Entité</span></div>
+      <div class="card-body">
+        <div class="param-entite-layout">
+          <div class="param-logo-zone">
+            <div class="param-logo-preview">${logo?`<img src="${logo}" style="max-width:130px;max-height:130px;object-fit:contain">`:'<div class="logo-ph">&#x1F3A8;<br><small>Logo</small></div>'}</div>
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('logoInput').click()" style="width:100%">&#x1F4F7; Logo</button>
+            ${logo?'<button class="btn btn-sm" style="color:var(--danger);background:none;border:none;cursor:pointer" onclick="app.removeLogo()">&#x1F5D1; Suppr.</button>':''}
+            <input type="file" id="logoInput" accept="image/*" style="display:none" onchange="app.uploadLogo(this)">
+          </div>
+          <div>
+            <div class="form-grid" style="margin-bottom:12px">
+              <div class="form-group full"><label class="form-label">Raison sociale <span class="req">*</span></label>
+                <input type="text" class="form-control" id="pNom" value="${nom}" placeholder="Artisanat Kayely"></div>
+              <div class="form-group full"><label class="form-label">Adresse</label>
+                <input type="text" class="form-control" id="pAdresse" value="${adresse}"></div>
+              <div class="form-group"><label class="form-label">Ville / Pays</label>
+                <input type="text" class="form-control" id="pVille" value="${ville}" placeholder="Abidjan, Côte d'Ivoire"></div>
+              <div class="form-group"><label class="form-label">Téléphone</label>
+                <input type="tel" class="form-control" id="pTel" value="${tel}"></div>
+              <div class="form-group"><label class="form-label">Email</label>
+                <input type="email" class="form-control" id="pEmail" value="${email}"></div>
+              <div class="form-group"><label class="form-label">RCCM</label>
+                <input type="text" class="form-control" id="pRccm" value="${rccm}"></div>
+              <div class="form-group"><label class="form-label">NIF / CC</label>
+                <input type="text" class="form-control" id="pNif" value="${nif}"></div>
+            </div>
+            <button class="btn btn-primary" onclick="app.saveEntite()">&#x1F4BE; Enregistrer l'entité</button>
+          </div>
+        </div>
+      </div></div>`;
+
+    // ---- Finances ----
+    html+=`<div class="card"><div class="card-header"><span class="card-title">&#x1F4B0; Paramètres Financiers</span></div>
+      <div class="card-body"><div class="param-row-2">
+        <div class="form-group"><label class="form-label">Solde initial trésorerie (FCFA)</label>
+          <input type="number" class="form-control" id="pSolde" value="${solde||0}"></div>
+        <div class="form-group"><label class="form-label">Taux TVA (%)</label>
+          <input type="number" class="form-control" id="pTva" value="${tva||18}" min="0" max="100"></div>
+      </div>
+      <button class="btn btn-primary" onclick="app.saveFinances()" style="margin-top:12px">&#x1F4BE; Enregistrer</button>
+    </div></div>`;
+
+    // ---- Users ----
+    html+=`<div class="card"><div class="card-header"><span class="card-title">&#x1F465; Utilisateurs</span>
+      <button class="btn btn-sm btn-secondary" onclick="app.showAddUser()">+ Ajouter</button></div>
+      <div class="card-body" id="usersTableBody"></div></div>`;
+
+    // ---- Danger ----
+    html+=`<div class="card" style="border-left:4px solid var(--danger)">
+      <div class="card-header"><span class="card-title" style="color:var(--danger)">&#x26A0; Zone Dangereuse</span></div>
+      <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-danger" onclick="app.clearJournal()">&#x1F5D1; Vider journal</button>
+        <button class="btn btn-danger" onclick="app.resetAll()">&#x26A0; Réinit. toutes données</button>
+        <button class="btn btn-primary" onclick="app.exportExcel()">&#x2B07; Export Excel</button>
+      </div></div>`;
+
+    document.getElementById('mainContent').innerHTML=html;
+    this.renderUsersTable();
+  }
+
+  async renderUsersTable(){
+    const localUsers=JSON.parse(localStorage.getItem('erp_users')||'null')||USERS;
+    const container=document.getElementById('usersTableBody');
+    if(!container) return;
+    let html=`<div class="table-wrap"><table>
+      <thead><tr><th>Icône</th><th>Nom</th><th>Rôle</th><th>PIN</th><th>Statut</th><th>Actions</th></tr></thead><tbody>`;
+    localUsers.forEach(u=>{
+      html+=`<tr>
+        <td style="font-size:1.4rem">${u.icon}</td>
+        <td><strong>${u.nom}</strong></td>
+        <td><span class="badge badge-info">${u.role}</span></td>
+        <td><code style="letter-spacing:3px">••••</code></td>
+        <td><span class="badge ${(u.actif!==false)?'badge-success':'badge-danger'}">${(u.actif!==false)?'Actif':'Inactif'}</span></td>
+        <td><button class="btn-icon edit" onclick="app.editUser(${u.id})">&#x270F;</button></td>
+      </tr>`;
+    });
+    html+=`</tbody></table></div>`;
+    container.innerHTML=html;
+  }
+
+  // ------ GOOGLE SHEETS CONFIG ------
+  saveGSConfig(){
+    const k=document.getElementById('gsApiKey').value.trim();
+    const s=document.getElementById('gsSheetId').value.trim();
+    if(!k||!s){ toast('Clé API et Sheet ID obligatoires','error'); return; }
+    this.sync.apiKey=k; this.sync.sheetId=s;
+    this.sync.save('api_key',k); this.sync.save('sheet_id',s);
+    this.sync.updateUI();
+    toast('Configuration Google Sheets enregistrée','success');
+    this.log('Config','Google Sheets configuré');
+    this.renderParametres();
+  }
+  async testGS(){
+    const k=document.getElementById('gsApiKey').value.trim();
+    const s=document.getElementById('gsSheetId').value.trim();
+    if(!k||!s){ toast('Remplissez les deux champs d\'abord','error'); return; }
+    const res=document.getElementById('gsTestResult');
+    res.innerHTML='<span style="color:var(--warning)">Test en cours...</span>';
+    this.sync.apiKey=k; this.sync.sheetId=s;
+    const ok=await this.sync.testConnection();
+    res.innerHTML=ok
+      ?'<span style="color:var(--success)">&#x2705; Connexion réussie – Google Sheets accessible.</span>'
+      :'<span style="color:var(--danger)">&#x274C; Échec – Vérifiez votre clé API, Sheet ID et que la feuille est partagée.</span>';
+  }
+  clearGSConfig(){
+    if(!confirm('Effacer la configuration Google Sheets ?')) return;
+    this.sync.apiKey=''; this.sync.sheetId='';
+    ['api_key','sheet_id'].forEach(k=>localStorage.removeItem('gs_'+k));
+    this.sync.updateUI(); toast('Configuration effacée','info'); this.renderParametres();
+  }
+
+  // ------ ENTITE ------
+  async uploadLogo(input){
+    const file=input.files[0]; if(!file) return;
+    if(file.size>700000){ toast('Fichier trop lourd (max 700 Ko)','error'); return; }
+    const reader=new FileReader();
+    reader.onload=async e=>{ await this.db.setParam('entite_logo',e.target.result); this.renderParametres(); };
+    reader.readAsDataURL(file);
+  }
+  async removeLogo(){ await this.db.setParam('entite_logo',''); this.renderParametres(); }
+  async saveEntite(){
+    const n=document.getElementById('pNom').value.trim();
+    if(!n){ toast('Nom obligatoire','error'); return; }
+    await Promise.all([
+      this.db.setParam('entite_nom',n),
+      this.db.setParam('entite_adresse',document.getElementById('pAdresse').value.trim()),
+      this.db.setParam('entite_ville',document.getElementById('pVille').value.trim()),
+      this.db.setParam('entite_tel',document.getElementById('pTel').value.trim()),
+      this.db.setParam('entite_email',document.getElementById('pEmail').value.trim()),
+      this.db.setParam('entite_rccm',document.getElementById('pRccm').value.trim()),
+      this.db.setParam('entite_nif',document.getElementById('pNif').value.trim()),
+    ]);
+    // Mettre à jour sidebar
+    const el=document.getElementById('sidebarEntity'); if(el){ el.textContent=n; el.style.display=''; }
+    await this.log('Modification','Entité mise à jour: '+n);
+    toast('Entité enregistrée','success'); this.renderParametres();
+  }
+  async saveFinances(){
+    await this.db.setParam('solde_initial',document.getElementById('pSolde').value||'0');
+    await this.db.setParam('tva',document.getElementById('pTva').value||'18');
+    await this.log('Modification','Paramètres financiers mis à jour');
+    toast('Paramètres financiers enregistrés','success');
+  }
+
+  // ------ USERS ------
+  showAddUser(){
+    this.openUserModal({id:Date.now(),nom:'',role:'Vendeur',pin:'',icon:'&#x1F464;',actif:true},true);
+  }
+  editUser(id){
+    const users=JSON.parse(localStorage.getItem('erp_users')||'null')||USERS;
+    const u=users.find(x=>x.id===id); if(!u) return;
+    this.openUserModal(u,false);
+  }
+  openUserModal(u,isNew){
+    if(!this.isAdmin()){ toast('Réservé à l\'Administrateur','error'); return; }
+    const roles=['Administrateur','Gerant','Comptable','Vendeur'];
+    const icons=['&#x2699;&#xFE0F;','&#x1F451;','&#x1F4CA;','&#x1F6D2;','&#x1F464;','&#x1F9D1;'];
+    document.getElementById('modalTitle').textContent=(isNew?'Nouvel':'Modifier')+' Utilisateur';
+    document.getElementById('modalBody').innerHTML=`
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Nom <span class="req">*</span></label>
+          <input type="text" class="form-control" id="euNom" value="${u.nom}"></div>
+        <div class="form-group"><label class="form-label">Rôle</label>
+          <select class="form-control" id="euRole">${roles.map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Nouveau PIN (4 chiffres)</label>
+          <input type="password" class="form-control" id="euPin" placeholder="&#x2022;&#x2022;&#x2022;&#x2022;" maxlength="4" autocomplete="new-password">
+          <small style="color:var(--text-light);font-size:.75rem">Laisser vide pour ne pas modifier</small></div>
+        <div class="form-group full"><label class="form-label">Icône</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">${icons.map(ic=>`<button type="button" class="icon-pick-btn ${u.icon===ic?'selected':''}" onclick="this.parentNode.querySelectorAll('.icon-pick-btn').forEach(b=>b.classList.remove('selected'));this.classList.add('selected');document.getElementById('euIcon').value=this.dataset.icon" data-icon="${ic}">${ic}</button>`).join('')}</div>
+          <input type="hidden" id="euIcon" value="${u.icon}"></div>
+        <div class="form-group"><label class="form-label">Statut</label>
+          <select class="form-control" id="euActif"><option value="true" ${u.actif!==false?'selected':''}>Actif</option><option value="false" ${u.actif===false?'selected':''}>Inactif</option></select></div>
+      </div>`;
+    document.getElementById('modalFooter').innerHTML=`
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="app.saveUser(${u.id},${isNew})">Enregistrer</button>`;
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+  saveUser(id,isNew){
+    if(!this.isAdmin()){ toast('Réservé à l\'Administrateur','error'); return; }
+    const nom=document.getElementById('euNom').value.trim();
+    const role=document.getElementById('euRole').value;
+    const pinInput=document.getElementById('euPin').value.trim();
+    const icon=document.getElementById('euIcon').value;
+    const actif=document.getElementById('euActif').value==='true';
+    if(!nom){ toast('Nom obligatoire','error'); return; }
+    if(isNew&&(!pinInput||pinInput.length!==4)){ toast('PIN 4 chiffres obligatoire pour un nouvel utilisateur','error'); return; }
+    if(pinInput&&pinInput.length!==4){ toast('Le PIN doit faire exactement 4 chiffres','error'); return; }
+    let users=JSON.parse(localStorage.getItem('erp_users')||'null')||[...USERS];
+    if(isNew){
+      users.push({id,nom,role,pin:pinInput,icon,actif});
+    } else {
+      const idx=users.findIndex(u=>u.id===id);
+      if(idx>=0){
+        const oldPin=users[idx].pin;
+        users[idx]={...users[idx],nom,role,icon,actif,pin:pinInput||oldPin};
+      }
+    }
+    localStorage.setItem('erp_users',JSON.stringify(users));
+    closeModal(); toast('Utilisateur enregistré','success'); this.renderParametres();
+  }
+
+  // ------ AJOUT OPERATIONS ------
+  showAdd(){
+    const forms={
+      encaissements:()=>this.formEncDec('encaissements','Encaissement'),
+      decaissements:()=>this.formEncDec('decaissements','Décaissement'),
+      ventes:()=>this.formVente(),
+      achats:()=>this.formAchat(),
+      stocks:()=>this.formStock(),
+    };
+    if(forms[this.page]) forms[this.page]();
+    else toast('Sélectionnez une page pour ajouter','info');
+  }
+
+  formEncDec(store,label){
+    document.getElementById('modalTitle').textContent='Nouveau '+label;
+    document.getElementById('modalBody').innerHTML=`
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Date <span class="req">*</span></label>
+          <input type="date" class="form-control" id="fDate" value="${this.today()}"></div>
+        <div class="form-group"><label class="form-label">Montant (FCFA) <span class="req">*</span></label>
+          <input type="number" class="form-control" id="fMontant" placeholder="0"></div>
+        <div class="form-group full"><label class="form-label">Libellé <span class="req">*</span></label>
+          <input type="text" class="form-control" id="fLibelle" placeholder="Description de l'opération"></div>
+        <div class="form-group"><label class="form-label">Catégorie</label>
+          <select class="form-control" id="fCat">
+            <option>Vente</option><option>Service</option><option>Loyer</option>
+            <option>Salaires</option><option>Fournitures</option><option>Transport</option>
+            <option>Taxes</option><option>Divers</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Mode de paiement</label>
+          <select class="form-control" id="fMode">
+            <option>Espèces</option><option>Mobile Money</option><option>Virement</option>
+            <option>Chèque</option><option>Carte</option>
+          </select></div>
+        <div class="form-group full"><label class="form-label">Remarque</label>
+          <input type="text" class="form-control" id="fRemarque" placeholder="Optionnel"></div>
+      </div>`;
+    document.getElementById('modalFooter').innerHTML=`
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="app.saveEncDec('${store}','${label}')">Enregistrer</button>`;
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+  async saveEncDec(store,label){
+    const date=document.getElementById('fDate').value;
+    const montant=parseFloat(document.getElementById('fMontant').value)||0;
+    const libelle=document.getElementById('fLibelle').value.trim();
+    if(!date||!montant||!libelle){ toast('Date, montant et libellé obligatoires','error'); return; }
+    const data={date,montant,libelle,
+      categorie:document.getElementById('fCat').value,
+      mode_paiement:document.getElementById('fMode').value,
+      remarque:document.getElementById('fRemarque').value,
+      user:this.user.nom,created:new Date().toISOString()};
+    await this.db.add(store,data);
+    await this.pushToSheet(store,[date,libelle,montant,data.categorie,data.mode_paiement,data.remarque,data.user]);
+    await this.log('Ajout',label+': '+libelle+' – '+this.fmt(montant));
+    closeModal(); toast(label+' enregistré','success'); this.render(store);
+  }
+
+  formVente(){
+    document.getElementById('modalTitle').textContent='Nouvelle Vente';
+    document.getElementById('modalBody').innerHTML=`
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Date <span class="req">*</span></label>
+          <input type="date" class="form-control" id="fDate" value="${this.today()}"></div>
+        <div class="form-group"><label class="form-label">Client</label>
+          <input type="text" class="form-control" id="fClient" placeholder="Nom du client"></div>
+        <div class="form-group full"><label class="form-label">Article / Service <span class="req">*</span></label>
+          <input type="text" class="form-control" id="fArticle" placeholder="Désignation"></div>
+        <div class="form-group"><label class="form-label">Quantité</label>
+          <input type="number" class="form-control" id="fQte" value="1" min="1" oninput="app.calcTotal()"></div>
+        <div class="form-group"><label class="form-label">Prix unitaire (FCFA)</label>
+          <input type="number" class="form-control" id="fPrix" placeholder="0" oninput="app.calcTotal()"></div>
+        <div class="form-group"><label class="form-label">Total (FCFA) <span class="req">*</span></label>
+          <input type="number" class="form-control" id="fMontant" placeholder="0"></div>
+        <div class="form-group"><label class="form-label">Mode de paiement</label>
+          <select class="form-control" id="fMode">
+            <option>Espèces</option><option>Mobile Money</option><option>Virement</option><option>Chèque</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Type</label>
+          <select class="form-control" id="fType"><option>Détail</option><option>Gros</option><option>Service</option></select></div>
+      </div>`;
+    document.getElementById('modalFooter').innerHTML=`
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-secondary" onclick="app.saveVente()">Enregistrer</button>`;
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+  calcTotal(){
+    const q=parseFloat(document.getElementById('fQte').value)||1;
+    const p=parseFloat(document.getElementById('fPrix').value)||0;
+    document.getElementById('fMontant').value=q*p||'';
+  }
+  async saveVente(){
+    const date=document.getElementById('fDate').value;
+    const montant=parseFloat(document.getElementById('fMontant').value)||0;
+    const article=document.getElementById('fArticle').value.trim();
+    if(!date||!montant||!article){ toast('Champs obligatoires manquants','error'); return; }
+    const data={date,client:document.getElementById('fClient').value,
+      description:article,quantite:document.getElementById('fQte').value,
+      prix_unitaire:document.getElementById('fPrix').value,
+      montant,mode:document.getElementById('fMode').value,
+      type_vente:document.getElementById('fType').value,
+      user:this.user.nom,created:new Date().toISOString()};
+    await this.db.add('ventes',data);
+    await this.pushToSheet('ventes',[date,data.client,article,data.quantite,data.prix_unitaire,montant,data.mode,data.type_vente,data.user]);
+    await this.log('Vente',article+' – '+this.fmt(montant));
+    closeModal(); toast('Vente enregistrée','success'); this.render('ventes');
+  }
+
+  formAchat(){
+    document.getElementById('modalTitle').textContent='Nouvel Achat';
+    document.getElementById('modalBody').innerHTML=`
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Date <span class="req">*</span></label>
+          <input type="date" class="form-control" id="fDate" value="${this.today()}"></div>
+        <div class="form-group"><label class="form-label">Fournisseur</label>
+          <input type="text" class="form-control" id="fFourn" placeholder="Nom fournisseur"></div>
+        <div class="form-group full"><label class="form-label">Désignation <span class="req">*</span></label>
+          <input type="text" class="form-control" id="fDesc" placeholder="Nature de l'achat"></div>
+        <div class="form-group"><label class="form-label">Montant (FCFA) <span class="req">*</span></label>
+          <input type="number" class="form-control" id="fMontant" placeholder="0"></div>
+        <div class="form-group"><label class="form-label">Mode de paiement</label>
+          <select class="form-control" id="fMode">
+            <option>Espèces</option><option>Mobile Money</option><option>Virement</option><option>Chèque</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Catégorie</label>
+          <select class="form-control" id="fCat">
+            <option>Matières premières</option><option>Fournitures</option><option>Équipement</option>
+            <option>Transport</option><option>Services</option><option>Divers</option>
+          </select></div>
+      </div>`;
+    document.getElementById('modalFooter').innerHTML=`
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="app.saveAchat()">Enregistrer</button>`;
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+  async saveAchat(){
+    const date=document.getElementById('fDate').value;
+    const montant=parseFloat(document.getElementById('fMontant').value)||0;
+    const desc=document.getElementById('fDesc').value.trim();
+    if(!date||!montant||!desc){ toast('Champs obligatoires manquants','error'); return; }
+    const data={date,fournisseur:document.getElementById('fFourn').value,
+      libelle:desc,montant,mode:document.getElementById('fMode').value,
+      categorie:document.getElementById('fCat').value,
+      user:this.user.nom,created:new Date().toISOString()};
+    await this.db.add('achats',data);
+    await this.pushToSheet('achats',[date,data.fournisseur,desc,montant,data.mode,data.categorie,data.user]);
+    await this.log('Achat',desc+' – '+this.fmt(montant));
+    closeModal(); toast('Achat enregistré','success'); this.render('achats');
+  }
+
+  formStock(item=null){
+    document.getElementById('modalTitle').textContent=item?'Modifier Article':'Nouvel Article';
+    document.getElementById('modalBody').innerHTML=`
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Désignation <span class="req">*</span></label>
+          <input type="text" class="form-control" id="fDes" value="${item?item.designation||item.article||'':''}" placeholder="Nom de l'article"></div>
+        <div class="form-group"><label class="form-label">Catégorie</label>
+          <input type="text" class="form-control" id="fCat" value="${item?item.categorie||'':''}" placeholder="Ex: Tissu, Outil..."></div>
+        <div class="form-group"><label class="form-label">Quantité <span class="req">*</span></label>
+          <input type="number" class="form-control" id="fQte" value="${item?item.quantite||0:0}" min="0"></div>
+        <div class="form-group"><label class="form-label">Seuil d'alerte</label>
+          <input type="number" class="form-control" id="fSeuil" value="${item?item.seuil||0:0}" min="0"></div>
+        <div class="form-group"><label class="form-label">Prix unitaire (FCFA)</label>
+          <input type="number" class="form-control" id="fPrix" value="${item?item.prix_unitaire||0:0}" min="0"></div>
+        <div class="form-group"><label class="form-label">Fournisseur</label>
+          <input type="text" class="form-control" id="fFourn" value="${item?item.fournisseur||'':''}" placeholder="Optionnel"></div>
+      </div>`;
+    document.getElementById('modalFooter').innerHTML=`
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="app.saveStock(${item?item.id:'null'})">Enregistrer</button>`;
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+  async saveStock(id){
+    const des=document.getElementById('fDes').value.trim();
+    const qte=parseFloat(document.getElementById('fQte').value)||0;
+    if(!des){ toast('Désignation obligatoire','error'); return; }
+    const data={designation:des,categorie:document.getElementById('fCat').value,
+      quantite:qte,seuil:parseFloat(document.getElementById('fSeuil').value)||0,
+      prix_unitaire:parseFloat(document.getElementById('fPrix').value)||0,
+      fournisseur:document.getElementById('fFourn').value,
+      date:this.today(),user:this.user.nom,created:new Date().toISOString()};
+    if(id){ await this.db.put('stocks',{...data,id}); }
+    else {
+      await this.db.add('stocks',data);
+      await this.pushToSheet('stocks',[des,data.categorie,qte,data.seuil,data.prix_unitaire,data.fournisseur,data.user]);
+    }
+    await this.log(id?'Modification':'Ajout','Stock: '+des+' – Qté: '+qte);
+    closeModal(); toast('Article enregistré','success'); this.render('stocks');
+  }
+
+  // ------ EDIT/DELETE ------
+  async editItem(store,id){
+    const items=await this.db.getAll(store);
+    const item=items.find(i=>i.id===id); if(!item) return;
+    if(store==='stocks') { this.formStock(item); return; }
+    // Édition générique
+    document.getElementById('modalTitle').textContent='Modifier opération';
+    document.getElementById('modalBody').innerHTML=`
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Date</label>
+          <input type="date" class="form-control" id="eDate" value="${item.date||''}"></div>
+        <div class="form-group"><label class="form-label">Montant (FCFA)</label>
+          <input type="number" class="form-control" id="eMontant" value="${item.montant||0}"></div>
+        <div class="form-group full"><label class="form-label">Libellé</label>
+          <input type="text" class="form-control" id="eLibelle" value="${item.libelle||item.client||item.description||''}"></div>
+      </div>`;
+    document.getElementById('modalFooter').innerHTML=`
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="app.applyEdit('${store}',${id})">Enregistrer</button>`;
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+  async applyEdit(store,id){
+    const items=await this.db.getAll(store);
+    const item=items.find(i=>i.id===id); if(!item) return;
+    const upd={...item,
+      date:document.getElementById('eDate').value,
+      montant:parseFloat(document.getElementById('eMontant').value)||0,
+      libelle:document.getElementById('eLibelle').value};
+    if(upd.client) upd.client=upd.libelle;
+    if(upd.description) upd.description=upd.libelle;
+    await this.db.put(store,upd);
+    await this.log('Modification',store+' #'+id);
+    closeModal(); toast('Modifié','success'); this.render(store);
+  }
+  async deleteItem(store,id){
+    if(!this.canDelete()){ toast('Non autorisé','error'); return; }
+    if(!confirm('Supprimer cette opération ?')) return;
+    await this.db.delete(store,id);
+    await this.log('Suppression',store+' #'+id);
+    toast('Supprimé','success'); this.render(store);
+  }
+
+  // ------ EXPORT EXCEL ------
+  async exportExcel(){
+    const [enc,dec,ventes,achats,stocks,journal]=await Promise.all([
+      this.db.getAll('encaissements'),this.db.getAll('decaissements'),
+      this.db.getAll('ventes'),this.db.getAll('achats'),this.db.getAll('stocks'),
+      this.db.getAll('journal')
+    ]);
+    // CSV simple
+    const toCSV=(arr,cols)=>[cols.join(','),...arr.map(r=>cols.map(c=>JSON.stringify(r[c]||'')).join(','))].join('\n');
+    const encCSV=toCSV(enc,['date','libelle','montant','categorie','mode_paiement','user']);
+    const link=document.createElement('a');
+    link.href='data:text/csv;charset=utf-8,'+encodeURIComponent(encCSV);
+    link.download='ERP_Encaissements_'+this.today()+'.csv';
+    link.click();
+    toast('Export téléchargé','success');
+  }
+
+  // ------ ACTIONS ADMIN ------
+  async clearJournal(){
+    if(!confirm('Vider tout le journal ?')) return;
+    await this.db.clear('journal');
+    toast('Journal vidé','success');
+    if(this.page==='journal') this.render('journal');
+    if(this.page==='parametres') this.renderParametres();
+  }
+  async resetAll(){
+    const c=prompt('ATTENTION: supprime TOUTES les données. Tapez CONFIRMER:');
+    if(c!=='CONFIRMER') return;
+    for(const s of ['encaissements','decaissements','ventes','achats','stocks','journal','sync_queue'])
+      await this.db.clear(s);
+    await this.log('Reset','Réinitialisation complète');
+    toast('Données réinitialisées','success'); this.nav('dashboard');
+  }
+
+  // ------ PERMISSIONS ------
+  isAdmin(){ return this.user&&this.user.role==='Administrateur'; }
+  isGerant(){ return this.user&&(this.user.role==='Gerant'||this.isAdmin()); }
+  canEdit(store){
+    const r=this.user?this.user.role:'';
+    if(r==='Administrateur'||r==='Gerant') return true;
+    if(r==='Comptable') return ['encaissements','decaissements','achats'].includes(store);
+    if(r==='Vendeur') return ['ventes','stocks'].includes(store);
+    return false;
+  }
+  canDelete(){ return this.isGerant(); }
+
+  logout(){
+    this.user=null;
+    document.getElementById('appContainer').style.display='none';
+    document.getElementById('loginScreen').style.display='flex';
+    pinBuf=''; selUser=null; showUserSel();
+    renderUsers();
+  }
+}
+
+// ---- HELPERS GLOBAUX ----
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+function toast(msg,type='success'){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast show '+type;
+  clearTimeout(t._t); t._t=setTimeout(()=>t.className='toast',2800);
+}
+function toggleSidebar(){
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebarOverlay').classList.toggle('open');
+}
+function closeSidebar(){
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('open');
+}
+function showUserSel(){ 
+  document.getElementById('userSelView').style.display='';
+  document.getElementById('pinView').classList.remove('show');
+  pinBuf='';
+  for(let i=0;i<4;i++) document.getElementById('pd'+i).classList.remove('filled');
+}
+
+// ---- INIT ----
+const app=new ERPApp();
+renderUsers();
+
+// Check mobile
+if(window.innerWidth<=768) document.getElementById('menuBtn').style.display='flex';
+
+// Responsive
+window.addEventListener('resize',()=>{
+  const mb=document.getElementById('menuBtn');
+  if(mb) mb.style.display=window.innerWidth<=768?'flex':'none';
+});
+
+// Fermer modal sur overlay
+document.getElementById('modalOverlay').addEventListener('click',e=>{
+  if(e.target===document.getElementById('modalOverlay')) closeModal();
+});
+</script>
+</body>
+</html>
