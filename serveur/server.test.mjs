@@ -1,4 +1,5 @@
-// Tests du serveur : node --test serveur/
+// Tests du serveur : npm test
+// Les mêmes tests valident la version PHP (php/) : voir test-php.mjs.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -6,12 +7,13 @@ import { createApp } from "./server.mjs";
 
 let server, base;
 before(async () => {
+  if (process.env.KGP_TEST_BASE){ base = process.env.KGP_TEST_BASE; return; }
   const { handler } = createApp({ dbFile: ":memory:" });
   server = http.createServer(handler);
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
-after(() => server.close());
+after(() => server && server.close());
 
 function client(){
   let cookie = "";
@@ -159,4 +161,11 @@ test("application installée dans un sous-dossier", async () => {
   assert.equal((await r.json()).server, true);
   const page = await fetch(base + "/kgpro/");
   assert.match(await page.text(), /window\.KGP_SERVER = true/);
+});
+
+test("php/lib/schema.json à jour avec kgpro.html", async () => {
+  const fs = await import("node:fs");
+  const { buildSchemaJson } = await import("../outils/generer-schema.mjs");
+  assert.equal(fs.readFileSync(new URL("../php/lib/schema.json", import.meta.url), "utf8"), buildSchemaJson(),
+    "Lancez : node outils/generer-schema.mjs");
 });

@@ -1,5 +1,12 @@
 # Serveur KAYELY GESTION PRO — vérification des données côté serveur
 
+Deux versions identiques du serveur, qui passent les mêmes tests :
+* **Node.js** (`serveur/`, `npm test`) : pour un VPS ou une offre cPanel avec Node.js ;
+* **PHP** (`php/`, `npm run test:php`) : pour un hébergement PHP classique (LWS Starter). Voir `HEBERGEMENT-LWS.md`.
+
+Les règles de champs de la version PHP sont dans `php/lib/schema.json`, généré depuis `kgpro.html` par `node outils/generer-schema.mjs`.
+**Relancez cette commande après toute modification des modules de `kgpro.html`.** Le test le vérifie.
+
 Quand l'application est ouverte **via le serveur**, chaque lecture et chaque écriture passe par lui.
 Il vérifie trois choses avant d'enregistrer quoi que ce soit :
 
