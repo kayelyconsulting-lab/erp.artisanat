@@ -8,11 +8,12 @@ Options -Indexes
   RewriteCond %{HTTPS} off
   RewriteCond %{HTTP:X-Forwarded-Proto} !https
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
-  # Toutes les adresses /api/... sont traitées par api.php
-  RewriteRule (^|/)api/ api.php [QSA,L]
+  # Toutes les adresses (accueil, console, /<code-société>/...) passent par index.php
+  RewriteCond %{REQUEST_URI} !(^|/)index\.php$
+  RewriteRule ^ index.php [QSA,L]
 </IfModule>
 
 # Fichiers internes jamais accessibles depuis le web
-<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|json|md|mjs|cjs|pem|log)$">
+<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|json|md|mjs|cjs|pem|log|txt)$">
   Require all denied
 </FilesMatch>

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KAYELY GESTION PRO</title>
+<style>
+  :root{ --navy:#1F3864; --gold:#E8720C; --gold-light:#FFA94D; --bg:#F5F8FC; --line:#DCE4F5; --ink:#15294D; --soft:#5B6479; --danger:#B3261E; }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;
+    font-family:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink)}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:32px 28px;width:100%;max-width:420px;
+    box-shadow:0 10px 30px rgba(21,41,77,.08);text-align:center}
+  h1{font-size:22px;margin:0 0 6px;color:var(--navy)} h1 span{color:var(--gold)}
+  p{color:var(--soft);font-size:14px;line-height:1.5;margin:0 0 22px}
+  label{display:block;text-align:left;font-size:12px;font-weight:600;color:var(--soft);margin-bottom:6px}
+  input{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:16px;background:#F3F6FB}
+  input:focus{outline:none;border-color:var(--navy);background:#fff}
+  button{margin-top:16px;width:100%;padding:13px;border:0;border-radius:10px;font-size:15px;font-weight:700;color:#fff;
+    background:linear-gradient(90deg,var(--gold),var(--gold-light));cursor:pointer}
+  .err{display:none;background:#FBE5E3;color:var(--danger);border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:14px}
+  .hint{margin-top:18px;font-size:12px;color:var(--soft)}
+</style>
+</head>
+<body>
+  <form class="card" id="f">
+    <h1>KAYELY <span>GESTION PRO</span></h1>
+    <p>Saisissez le code de votre société pour accéder à votre espace.</p>
+    <div class="err" id="err">Aucune société ne correspond à cette adresse. Vérifiez le code.</div>
+    <label for="code">Code société</label>
+    <input id="code" autocomplete="organization" autocapitalize="none" spellcheck="false" placeholder="ex. cabinet-abc" required>
+    <button type="submit">Accéder à mon espace</button>
+    <div class="hint">Le code vous a été communiqué par Kayely Group.</div>
+  </form>
+<script>
+  var BASE = "{{BASE}}";
+  if (location.pathname.replace(/\/+$/, "") !== BASE) document.getElementById("err").style.display = "block";
+  document.getElementById("f").addEventListener("submit", function(e){
+    e.preventDefault();
+    var code = document.getElementById("code").value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+    if (code) location.href = BASE + "/" + code + "/";
+  });
+</script>
+</body>
+</html>

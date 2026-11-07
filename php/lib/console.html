@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Console sociétés — KAYELY GESTION PRO</title>
+<style>
+  :root{ --navy:#1F3864; --navy2:#15294D; --gold:#E8720C; --gold-light:#FFA94D; --bg:#F5F8FC; --line:#DCE4F5;
+    --ink:#15294D; --soft:#5B6479; --danger:#B3261E; --ok:#1E7A46; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+  header{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+  header b{font-size:16px} header b span{color:var(--gold-light)}
+  main{max-width:960px;margin:0 auto;padding:20px 16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px;margin-bottom:18px}
+  .narrow{max-width:420px;margin:40px auto}
+  h2{font-size:17px;margin:0 0 6px;color:var(--navy)}
+  p.sub{color:var(--soft);margin:0 0 16px;line-height:1.5}
+  label{display:block;font-size:12px;font-weight:600;color:var(--soft);margin:10px 0 5px}
+  input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px;background:#F3F6FB}
+  input:focus{outline:none;border-color:var(--navy);background:#fff}
+  button{border:0;border-radius:9px;padding:11px 16px;font-size:14px;font-weight:700;cursor:pointer}
+  .gold{background:linear-gradient(90deg,var(--gold),var(--gold-light));color:#fff}
+  .ghost{background:#EEF2F9;color:var(--navy)}
+  .danger{background:#FBE5E3;color:var(--danger)}
+  .full{width:100%;margin-top:16px}
+  .msg{display:none;border-radius:9px;padding:10px 12px;margin-bottom:12px;line-height:1.4}
+  .msg.err{display:block;background:#FBE5E3;color:var(--danger)} .msg.ok{display:block;background:#E3F4EA;color:var(--ok)}
+  .row{display:flex;gap:12px;flex-wrap:wrap} .row > div{flex:1 1 200px}
+  table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;color:var(--soft);font-weight:600}
+  .tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:700}
+  .tag.on{background:#E3F4EA;color:var(--ok)} .tag.off{background:#FBE5E3;color:var(--danger)}
+  .actions{display:flex;gap:6px;flex-wrap:wrap} .actions button{padding:7px 10px;font-size:12px}
+  a{color:var(--navy)} code{background:#EEF2F9;padding:1px 6px;border-radius:5px}
+  .hidden{display:none}
+  @media (max-width:640px){ thead{display:none} tr{display:block;border-bottom:1px solid var(--line);padding:8px 0} td{display:block;border:0;padding:4px 0} }
+</style>
+</head>
+<body>
+<header><b>KAYELY <span>GESTION PRO</span> — Console sociétés</b><button class="ghost hidden" id="logoutBtn">Se déconnecter</button></header>
+<main>
+  <!-- Première configuration -->
+  <form class="card narrow hidden" id="setupView">
+    <h2>Configurer la console</h2>
+    <p class="sub">Dans le <b>Gestionnaire de fichiers</b> LWS, ouvrez le dossier <code>kgpro-donnees</code> et le fichier <code>CODE-CONSOLE.txt</code> : il contient le code d'installation. Choisissez ensuite le mot de passe de la console (10 caractères minimum).</p>
+    <div class="msg" id="setupMsg"></div>
+    <label>Code d'installation</label><input id="setupCode" autocomplete="off" autocapitalize="characters">
+    <label>Nouveau mot de passe de la console</label><input id="setupPass" type="password" autocomplete="new-password">
+    <label>Confirmez le mot de passe</label><input id="setupPass2" type="password" autocomplete="new-password">
+    <button class="gold full" type="submit">Enregistrer</button>
+  </form>
+
+  <!-- Connexion -->
+  <form class="card narrow hidden" id="loginView">
+    <h2>Connexion à la console</h2>
+    <p class="sub">Réservée à Kayely Group : création et gestion des sociétés clientes.</p>
+    <div class="msg" id="loginMsg"></div>
+    <label>Mot de passe de la console</label><input id="loginPass" type="password" autocomplete="current-password">
+    <button class="gold full" type="submit">Se connecter</button>
+  </form>
+
+  <!-- Gestion des sociétés -->
+  <div class="hidden" id="mainView">
+    <form class="card" id="createForm">
+      <h2>Nouvelle société</h2>
+      <p class="sub">Chaque société reçoit sa propre base de données, séparée des autres, et sa propre adresse.</p>
+      <div class="msg" id="createMsg"></div>
+      <div class="row">
+        <div><label>Nom de la société</label><input id="newNom" placeholder="Cabinet ABC SARL" maxlength="120"></div>
+        <div><label>Code (dans l'adresse)</label><input id="newSlug" placeholder="cabinet-abc" maxlength="40" autocapitalize="none" spellcheck="false"></div>
+      </div>
+      <p class="sub" style="margin:8px 0 0">Adresse : <code id="newUrl">—</code></p>
+      <button class="gold full" type="submit">Créer la société</button>
+    </form>
+
+    <div class="card">
+      <h2>Sociétés</h2>
+      <div class="msg" id="listMsg"></div>
+      <table>
+        <thead><tr><th>Société</th><th>Adresse</th><th>État</th><th>Actions</th></tr></thead>
+        <tbody id="list"></tbody>
+      </table>
+      <p class="sub hidden" id="empty" style="margin:12px 0 0">Aucune société pour l'instant.</p>
+    </div>
+
+    <form class="card" id="pwForm">
+      <h2>Mot de passe de la console</h2>
+      <div class="msg" id="pwMsg"></div>
+      <div class="row">
+        <div><label>Mot de passe actuel</label><input id="pwCur" type="password" autocomplete="current-password"></div>
+        <div><label>Nouveau mot de passe</label><input id="pwNew" type="password" autocomplete="new-password"></div>
+      </div>
+      <button class="ghost full" type="submit">Changer le mot de passe</button>
+    </form>
+  </div>
+</main>
+<script>
+const BASE = "{{BASE}}";
+const API = BASE + "/console/api/";
+const $ = id => document.getElementById(id);
+const origin = location.origin;
+
+async function api(method, path, body){
+  const res = await fetch(API + path, { method, credentials: "same-origin",
+    headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+    body: body !== undefined ? JSON.stringify(body) : undefined });
+  let data = null; try{ data = await res.json(); }catch(e){}
+  if (!res.ok){ const e = new Error((data && data.error) || ("Erreur " + res.status)); e.status = res.status; throw e; }
+  return data;
+}
+function msg(id, text, ok){ const m = $(id); m.textContent = text || ""; m.className = "msg" + (text ? (ok ? " ok" : " err") : ""); }
+function show(view){
+  ["setupView", "loginView", "mainView"].forEach(v => $(v).classList.toggle("hidden", v !== view));
+  $("logoutBtn").classList.toggle("hidden", view !== "mainView");
+}
+function slugify(s){
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+const urlOf = slug => origin + BASE + "/" + slug + "/";
+
+async function boot(){
+  try{
+    const st = await api("GET", "status");
+    if (!st.configured) show("setupView");
+    else if (!st.loggedIn) show("loginView");
+    else { show("mainView"); await refresh(); }
+  }catch(e){ document.querySelector("main").textContent = "Serveur injoignable : " + e.message; }
+}
+
+async function refresh(){
+  const rows = await api("GET", "societes");
+  const tb = $("list"); tb.innerHTML = "";
+  $("empty").classList.toggle("hidden", rows.length > 0);
+  for (const s of rows){
+    const tr = document.createElement("tr");
+    const td1 = document.createElement("td");
+    const nom = document.createElement("b"); nom.textContent = s.nom; td1.appendChild(nom);
+    const info = document.createElement("div"); info.style.cssText = "color:var(--soft);font-size:12px;margin-top:3px";
+    info.textContent = s.administrateurConfigure
+      ? s.utilisateurs + " utilisateur(s) · " + Math.max(1, Math.round(s.tailleOctets / 1024)) + " Ko"
+      : "Administrateur à créer (première ouverture de l'adresse)";
+    td1.appendChild(info);
+    const td2 = document.createElement("td");
+    const a = document.createElement("a"); a.href = urlOf(s.slug); a.target = "_blank"; a.rel = "noopener"; a.textContent = urlOf(s.slug);
+    td2.appendChild(a);
+    const td3 = document.createElement("td");
+    const tag = document.createElement("span"); tag.className = "tag " + (s.statut === "Active" ? "on" : "off"); tag.textContent = s.statut;
+    td3.appendChild(tag);
+    const td4 = document.createElement("td"); const act = document.createElement("div"); act.className = "actions";
+    const btn = (label, cls, fn) => { const b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = label; b.onclick = fn; act.appendChild(b); };
+    btn("Copier l'adresse", "ghost", async () => {
+      try{ await navigator.clipboard.writeText(urlOf(s.slug)); msg("listMsg", "Adresse copiée : " + urlOf(s.slug), true); }
+      catch(e){ prompt("Adresse de la société :", urlOf(s.slug)); }
+    });
+    btn("Renommer", "ghost", async () => {
+      const nouveau = prompt("Nouveau nom de la société :", s.nom);
+      if (!nouveau) return;
+      try{ await api("POST", "societes/" + s.slug + "/nom", { nom: nouveau }); await refresh(); }catch(e){ msg("listMsg", e.message); }
+    });
+    if (s.statut === "Active") btn("Suspendre", "danger", async () => {
+      if (!confirm("Suspendre l'accès de « " + s.nom + " » ? Ses données sont conservées.")) return;
+      try{ await api("POST", "societes/" + s.slug + "/statut", { statut: "Suspendue" }); await refresh(); }catch(e){ msg("listMsg", e.message); }
+    });
+    else btn("Réactiver", "ghost", async () => {
+      try{ await api("POST", "societes/" + s.slug + "/statut", { statut: "Active" }); await refresh(); }catch(e){ msg("listMsg", e.message); }
+    });
+    if (s.administrateurConfigure) btn("Code admin oublié", "ghost", async () => {
+      if (!confirm("Générer un code provisoire pour l'administrateur de « " + s.nom + " » ? Il devra le changer à sa connexion.")) return;
+      try{
+        const r = await api("POST", "societes/" + s.slug + "/reinitialiser", {});
+        msg("listMsg", "Identifiant : " + r.login + " — code provisoire : " + r.codeProvisoire + " (à transmettre à la société, il devra le changer).", true);
+      }catch(e){ msg("listMsg", e.message); }
+    });
+    td4.appendChild(act);
+    tr.append(td1, td2, td3, td4); tb.appendChild(tr);
+  }
+}
+
+$("setupView").addEventListener("submit", async e => {
+  e.preventDefault(); msg("setupMsg", "");
+  if ($("setupPass").value !== $("setupPass2").value) return msg("setupMsg", "Les deux mots de passe ne correspondent pas.");
+  try{ await api("POST", "setup", { code: $("setupCode").value, password: $("setupPass").value }); show("mainView"); await refresh(); }
+  catch(e){ msg("setupMsg", e.message); }
+});
+$("loginView").addEventListener("submit", async e => {
+  e.preventDefault(); msg("loginMsg", "");
+  try{ await api("POST", "login", { password: $("loginPass").value }); $("loginPass").value = ""; show("mainView"); await refresh(); }
+  catch(e){ msg("loginMsg", e.message); }
+});
+$("logoutBtn").onclick = async () => { await api("POST", "logout", {}).catch(() => {}); show("loginView"); };
+
+let slugTouched = false;
+$("newSlug").addEventListener("input", () => { slugTouched = true; $("newUrl").textContent = $("newSlug").value ? urlOf(slugify($("newSlug").value)) : "—"; });
+$("newNom").addEventListener("input", () => {
+  if (!slugTouched) $("newSlug").value = slugify($("newNom").value);
+  $("newUrl").textContent = $("newSlug").value ? urlOf($("newSlug").value) : "—";
+});
+$("createForm").addEventListener("submit", async e => {
+  e.preventDefault(); msg("createMsg", "");
+  try{
+    const s = await api("POST", "societes", { nom: $("newNom").value, slug: slugify($("newSlug").value) });
+    msg("createMsg", "Société créée. Adresse à transmettre : " + urlOf(s.slug) + " — à la première ouverture, la société crée son compte administrateur.", true);
+    $("newNom").value = ""; $("newSlug").value = ""; $("newUrl").textContent = "—"; slugTouched = false;
+    await refresh();
+  }catch(e){ if (e.status === 401) return show("loginView"); msg("createMsg", e.message); }
+});
+$("pwForm").addEventListener("submit", async e => {
+  e.preventDefault(); msg("pwMsg", "");
+  try{ await api("POST", "password", { current: $("pwCur").value, password: $("pwNew").value }); $("pwCur").value = ""; $("pwNew").value = ""; msg("pwMsg", "Mot de passe modifié.", true); }
+  catch(e){ msg("pwMsg", e.message); }
+});
+boot();
+</script>
+</body>
+</html>

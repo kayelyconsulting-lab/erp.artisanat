@@ -1422,7 +1422,7 @@ function deleteRecord(store, id){
    et propage l'info aux autres onglets ouverts.
    --------------------------------------------------------- */
 let accueilRefreshTimer = null;
-const erpSyncChannel = ("BroadcastChannel" in window) ? new BroadcastChannel("kayely-erp-sync") : null;
+const erpSyncChannel = ("BroadcastChannel" in window) ? new BroadcastChannel("kayely-erp-sync" + (window.KGP_SOCIETE ? ":" + window.KGP_SOCIETE.slug : "")) : null;
 function notifyDataChanged(fromRemote){
   if (currentModule === "accueil"){
     clearTimeout(accueilRefreshTimer);
@@ -3840,6 +3840,9 @@ function toast(msg){
 // -> Remplacée automatiquement par : node outils/kgp-licence.mjs init --html kgpro.html
 const KGP_LICENSE_PUBLIC_KEY = "__KGP_CLE_PUBLIQUE_A_CONFIGURER__";
 const KGP_TRIAL_DAYS = 15;
+// Plusieurs sociétés sur le même serveur : la licence et la période d'essai mémorisées
+// dans le navigateur sont propres à chaque société (aucun mélange entre elles).
+function kgpLsKey(k){ return window.KGP_SOCIETE ? "kgp:" + window.KGP_SOCIETE.slug + ":" + k : k; }
 const KGP_RENEWAL_ALERT_DAYS = 30; // alerte affichée 1 mois avant l'échéance
 
 // Vérification Ed25519 + SHA-512 en JS pur (BigInt), indépendante de Web Crypto,
@@ -4007,15 +4010,15 @@ function kgpLegacyExpiry(key){
 }
 
 function kgpGetStoredLicense(){
-  try{ return JSON.parse(localStorage.getItem("kgpLicense") || "null"); }
+  try{ return JSON.parse(localStorage.getItem(kgpLsKey("kgpLicense")) || "null"); }
   catch(e){ return null; }
 }
 
 function kgpGetTrialDaysLeft(){
-  let first = localStorage.getItem("kgpFirstRun");
+  let first = localStorage.getItem(kgpLsKey("kgpFirstRun"));
   if (!first){
     first = String(Date.now());
-    localStorage.setItem("kgpFirstRun", first);
+    localStorage.setItem(kgpLsKey("kgpFirstRun"), first);
   }
   const elapsedDays = Math.floor((Date.now() - Number(first)) / 86400000);
   return Math.max(0, KGP_TRIAL_DAYS - elapsedDays);
@@ -4108,7 +4111,7 @@ async function attemptActivation(){
       errEl.textContent = "Cette clé est déjà expirée. Contactez Kayely Group pour une nouvelle clé.";
       return;
     }
-    localStorage.setItem("kgpLicense", JSON.stringify({ company, key: key.replace(/\s+/g, ""), activatedAt: Date.now() }));
+    localStorage.setItem(kgpLsKey("kgpLicense"), JSON.stringify({ company, key: key.replace(/\s+/g, ""), activatedAt: Date.now() }));
   }
   document.getElementById("activationScreen").style.display = "none";
   document.getElementById("trialBanner").style.display = "none";
@@ -4220,7 +4223,21 @@ function isExpired(user){
   return exp < today;
 }
 
+function kgpShowSocieteName(){
+  if (!window.KGP_SOCIETE) return;
+  document.title = window.KGP_SOCIETE.nom + " — KAYELY GESTION PRO";
+  document.querySelectorAll(".login-card h2").forEach(h => {
+    if (h.nextElementSibling && h.nextElementSibling.classList.contains("kgp-societe")) return;
+    const d = document.createElement("div");
+    d.className = "login-hint kgp-societe";
+    d.style.cssText = "margin:-12px 0 16px;font-weight:700;color:var(--gold);font-size:13px;";
+    d.textContent = "Société : " + window.KGP_SOCIETE.nom;
+    h.after(d);
+  });
+}
+
 function showLogin(){
+  kgpShowSocieteName();
   document.getElementById("app").classList.remove("show");
   document.getElementById("loginScreen").style.display = "block";
   document.getElementById("setupCard").style.display = "none";
@@ -4237,6 +4254,7 @@ const LEGACY_DEFAULT_PASSWORDS = ["kayely123"];
 let setupMode = null; // "create" (aucun utilisateur) ou "change" (mot de passe par défaut)
 
 function showSetup(mode){
+  kgpShowSocieteName();
   setupMode = mode;
   document.getElementById("app").classList.remove("show");
   document.getElementById("loginScreen").style.display = "block";

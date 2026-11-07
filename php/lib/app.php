@@ -4,7 +4,6 @@
 declare(strict_types=1);
 require __DIR__ . '/validation.php';
 
-const KGP_COOKIE = 'kgp_session';
 const KGP_IDLE = 12 * 3600;          // déconnexion après 12 h d'inactivité
 const KGP_ABSOLUTE = 7 * 24 * 3600;
 const KGP_MAX_BODY = 8 * 1024 * 1024;
@@ -24,30 +23,57 @@ final class HttpError extends Exception {
 
 // Dossier des données : KGP_DATA_DIR, sinon à côté du site (hors de la partie publique)
 // si c'est possible, sinon dans « donnees/ » protégé par .htaccess.
+// Dossier des données : KGP_DATA_DIR, sinon « kgpro-donnees » hors de la partie publique
+// du site (à côté de htdocs / public_html / www), sinon « donnees/ » protégé par .htaccess.
 function kgp_data_dir(): string {
   $env = getenv('KGP_DATA_DIR');
   if ($env) return rtrim($env, '/');
   $appDir = dirname(__DIR__);
-  $outside = dirname($appDir) . '/kgpro-donnees';
-  if (is_dir($outside) && is_writable($outside)) return $outside;
-  if (!is_dir($outside) && is_writable(dirname($appDir)) && @mkdir($outside, 0700)) return $outside;
+  $candidates = [];
+  $dir = $appDir;
+  while (($parent = dirname($dir)) !== $dir){
+    if (in_array(strtolower(basename($dir)), ['htdocs', 'public_html', 'www', 'httpdocs'], true)){ $candidates[] = $parent . '/kgpro-donnees'; break; }
+    $dir = $parent;
+  }
+  $candidates[] = dirname($appDir) . '/kgpro-donnees';
+  foreach ($candidates as $c){
+    if (is_dir($c) && is_writable($c)) return $c;
+    if (!is_dir($c) && is_writable(dirname($c)) && @mkdir($c, 0700)) return $c;
+  }
   return $appDir . '/donnees';
 }
 
-function kgp_db(): PDO {
-  static $pdo = null;
-  if ($pdo) return $pdo;
+// Prépare le dossier des données (protégé même s'il est dans la partie publique).
+function kgp_prepare_dir(string $dir): void {
+  if (!is_dir($dir) && !@mkdir($dir, 0700, true)) throw new HttpError(500, "Impossible de créer le dossier des données : $dir");
+  if (!file_exists("$dir/.htaccess")) @file_put_contents("$dir/.htaccess", "Require all denied\nDeny from all\n");
+  if (!file_exists("$dir/index.html")) @file_put_contents("$dir/index.html", '');
+}
+
+function kgp_open_sqlite(string $file): PDO {
   if (!in_array('sqlite', PDO::getAvailableDrivers(), true)){
     throw new HttpError(500, "L'extension PHP pdo_sqlite n'est pas activée sur l'hébergement (Configuration php).");
   }
-  $dir = kgp_data_dir();
-  if (!is_dir($dir) && !@mkdir($dir, 0700, true)) throw new HttpError(500, "Impossible de créer le dossier des données : $dir");
-  // Protection si le dossier est dans la partie publique du site.
-  if (!file_exists("$dir/.htaccess")) @file_put_contents("$dir/.htaccess", "Require all denied\nDeny from all\n");
-  if (!file_exists("$dir/index.html")) @file_put_contents("$dir/index.html", '');
-  $pdo = new PDO('sqlite:' . $dir . '/kgpro.sqlite', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+  kgp_prepare_dir(dirname($file));
+  $pdo = new PDO('sqlite:' . $file, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
   $pdo->exec('PRAGMA busy_timeout = 5000');
   $pdo->exec('PRAGMA journal_mode = WAL');
+  return $pdo;
+}
+
+// Société en cours : chaque société a SA base (fichier SQLite séparé), ses sessions et son cookie.
+$GLOBALS['KGP_TENANT'] = null; // ['slug' => ..., 'nom' => ..., 'file' => ..., 'cookiePath' => ...]
+function kgp_tenant(): array {
+  if (!$GLOBALS['KGP_TENANT']) throw new HttpError(404, 'Société inconnue');
+  return $GLOBALS['KGP_TENANT'];
+}
+function kgp_cookie_name(): string { return 'kgp_s_' . str_replace('-', '_', kgp_tenant()['slug']); }
+
+function kgp_db(): PDO {
+  static $pdos = [];
+  $file = kgp_tenant()['file'];
+  if (isset($pdos[$file])) return $pdos[$file];
+  $pdo = kgp_open_sqlite($file);
   $pdo->exec("
     CREATE TABLE IF NOT EXISTS records (store TEXT NOT NULL, id INTEGER NOT NULL, data TEXT NOT NULL,
       updated_at INTEGER NOT NULL, updated_by INTEGER, PRIMARY KEY (store, id));
@@ -56,7 +82,7 @@ function kgp_db(): PDO {
     CREATE TABLE IF NOT EXISTS audit (at INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, store TEXT, record_id INTEGER);
     CREATE TABLE IF NOT EXISTS login_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, first INTEGER NOT NULL);
   ");
-  return $pdo;
+  return $pdos[$file] = $pdo;
 }
 
 function kgp_all(string $store): array {
@@ -158,9 +184,9 @@ function kgp_is_https(): bool {
   return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
 }
 function kgp_set_cookie(string $value, int $maxAge): void {
-  setcookie(KGP_COOKIE, $value, [
+  setcookie(kgp_cookie_name(), $value, [
     'expires' => $maxAge > 0 ? time() + $maxAge : time() - 3600,
-    'path' => '/', 'secure' => kgp_is_https(), 'httponly' => true, 'samesite' => 'Strict',
+    'path' => kgp_tenant()['cookiePath'], 'secure' => kgp_is_https(), 'httponly' => true, 'samesite' => 'Strict',
   ]);
 }
 function kgp_token_hash(string $t): string { return hash('sha256', $t); }
@@ -174,7 +200,7 @@ function kgp_delete_other_sessions(int $userId, string $keepHash = ''): void {
   kgp_db()->prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?')->execute([$userId, $keepHash]);
 }
 function kgp_current_session(): ?array {
-  $token = $_COOKIE[KGP_COOKIE] ?? '';
+  $token = $_COOKIE[kgp_cookie_name()] ?? '';
   if (!is_string($token) || $token === '') return null;
   $hash = kgp_token_hash($token);
   $db = kgp_db();
@@ -338,15 +364,11 @@ function kgp_assert_same_origin(string $method): void {
   }
 }
 
-function kgp_handle_api(): void {
+// $p : chemin à partir de « /api/ » (ex. /api/data/clients), pour la société en cours.
+function kgp_handle_api(string $p): void {
   try {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-    $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-    $at = strpos($path, '/api/');
-    // Repli sans réécriture d'URL : api.php?r=/api/...
-    if ($at === false && isset($_GET['r'])){ $path = (string)$_GET['r']; $at = strpos($path, '/api/'); }
-    if ($at === false) throw new HttpError(404, 'Route inconnue');
-    $p = substr($path, $at);
+    kgp_tenant();
     kgp_assert_same_origin($method);
 
     if ($p === '/api/status' && $method === 'GET'){ kgp_send(['server' => true, 'needsSetup' => kgp_count('utilisateurs') === 0]); return; }
@@ -390,7 +412,7 @@ function kgp_handle_api(): void {
     }
 
     if ($p === '/api/logout' && $method === 'POST'){
-      $t = $_COOKIE[KGP_COOKIE] ?? '';
+      $t = $_COOKIE[kgp_cookie_name()] ?? '';
       if (is_string($t) && $t !== '') kgp_db()->prepare('DELETE FROM sessions WHERE token_hash = ?')->execute([kgp_token_hash($t)]);
       kgp_set_cookie('', 0);
       kgp_send(['ok' => true]);
@@ -440,10 +462,13 @@ function kgp_handle_api(): void {
 }
 
 function kgp_serve_app(): void {
+  $t = kgp_tenant();
   $html = file_get_contents(__DIR__ . '/kgpro.html');
   if ($html === false){ http_response_code(500); echo 'kgpro.html introuvable dans lib/'; return; }
   kgp_security_headers();
   header('Content-Type: text/html; charset=utf-8');
+  $societe = json_encode(['slug' => $t['slug'], 'nom' => $t['nom']], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
   $pos = strpos($html, '<head>');
-  echo $pos === false ? $html : substr_replace($html, "<head>\n<script>window.KGP_SERVER = true;</script>", $pos, 6);
+  $inject = "<head>\n<script>window.KGP_SERVER = true; window.KGP_SOCIETE = $societe;</script>";
+  echo $pos === false ? $html : substr_replace($html, $inject, $pos, 6);
 }

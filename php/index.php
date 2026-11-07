@@ -1,4 +1,5 @@
 <?php
-// KAYELY GESTION PRO — page de l'application (version PHP du serveur).
-require __DIR__ . '/lib/app.php';
-kgp_serve_app();
+// KAYELY GESTION PRO — point d'entrée unique : accueil, console, et chaque société
+// (/<code>/ et /<code>/api/...) avec sa propre base de données.
+require __DIR__ . '/lib/plateforme.php';
+kgp_route();

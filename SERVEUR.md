@@ -3,6 +3,8 @@
 Deux versions identiques du serveur, qui passent les mêmes tests :
 * **Node.js** (`serveur/`, `npm test`) : pour un VPS ou une offre cPanel avec Node.js ;
 * **PHP** (`php/`, `npm run test:php`) : pour un hébergement PHP classique (LWS Starter). Voir `HEBERGEMENT-LWS.md`.
+  Cette version gère **plusieurs sociétés, chacune avec sa propre base** (`/<code>/`), et une console Kayely Group (`/console/`).
+  La version Node.js ne sert qu'une seule société par installation.
 
 Les règles de champs de la version PHP sont dans `php/lib/schema.json`, généré depuis `kgpro.html` par `node outils/generer-schema.mjs`.
 **Relancez cette commande après toute modification des modules de `kgpro.html`.** Le test le vérifie.

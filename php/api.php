@@ -1,4 +1,4 @@
 <?php
-// KAYELY GESTION PRO — API : connexion, droits et vérification de chaque donnée.
-require __DIR__ . '/lib/app.php';
-kgp_handle_api();
+// Conservé pour compatibilité : tout passe par index.php.
+require __DIR__ . '/lib/plateforme.php';
+kgp_route();
