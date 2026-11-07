@@ -1284,21 +1284,68 @@ async function getFournisseurSolde(nom){ const m = await getAllFournisseurSoldes
 /* ---------------------------------------------------------
    2) INDEXEDDB
    --------------------------------------------------------- */
-function openDB(){
+// Liste des tables (object stores) attendues par la version actuelle de l'application.
+function kgpExpectedStores(){
+  const out = [];
+  SECTIONS.forEach(sec => sec.modules.forEach(mod => { if (!mod.readonly) out.push(mod.key); }));
+  return out;
+}
+
+// Bandeau toujours visible (même avant connexion, quand #app est masqué).
+function kgpDbStatus(msg){
+  let el = document.getElementById("dbStatus");
+  if (!msg){ if (el) el.remove(); return; }
+  if (!el){
+    el = document.createElement("div");
+    el.id = "dbStatus";
+    el.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2000;padding:14px 18px;background:var(--danger);color:#fff;font-size:14px;text-align:center;line-height:1.4;";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+}
+
+// Ouvre la base sans imposer de numéro de version : si des tables manquent (base créée
+// par une version plus ancienne de l'application), la version est augmentée
+// automatiquement pour les créer. Avec un DB_VERSION figé, onupgradeneeded ne
+// s'exécutait jamais sur une base existante : les nouvelles tables n'étaient jamais
+// créées et le démarrage échouait.
+function kgpOpenOnce(version){
   return new Promise((resolve,reject)=>{
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    let req;
+    try{ req = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME); }
+    catch(e){ reject(e); return; }
     req.onupgradeneeded = e => {
       const _db = e.target.result;
-      SECTIONS.forEach(sec => sec.modules.forEach(mod => {
-        if (mod.readonly) return;
-        if (!_db.objectStoreNames.contains(mod.key)){
-          _db.createObjectStore(mod.key, { keyPath:"id", autoIncrement:true });
+      kgpExpectedStores().forEach(key => {
+        if (!_db.objectStoreNames.contains(key)){
+          _db.createObjectStore(key, { keyPath:"id", autoIncrement:true });
         }
-      }));
+      });
     };
-    req.onsuccess = e => resolve(e.target.result);
-    req.onerror = e => reject(e);
+    // Un autre onglet / une autre fenêtre garde l'ancienne version ouverte :
+    // l'ouverture reste en attente jusqu'à sa fermeture, on prévient l'utilisateur.
+    req.onblocked = () => kgpDbStatus("Mise à jour de la base en attente : fermez les autres onglets ou fenêtres de KAYELY GESTION PRO ouverts, puis patientez.");
+    req.onsuccess = e => {
+      const _db = e.target.result;
+      // Si une autre fenêtre doit mettre la base à jour, on libère la connexion.
+      _db.onversionchange = () => { _db.close(); kgpDbStatus("La base a été mise à jour dans une autre fenêtre : rechargez la page."); };
+      resolve(_db);
+    };
+    req.onerror = () => reject(req.error);
   });
+}
+
+async function openDB(){
+  if (!window.indexedDB) throw new Error("IndexedDB indisponible (navigation privée ?)");
+  let _db = await kgpOpenOnce(0);
+  const missing = kgpExpectedStores().filter(k => !_db.objectStoreNames.contains(k));
+  if (missing.length){
+    const next = Math.max(_db.version, DB_VERSION) + 1;
+    _db.close();
+    _db = await kgpOpenOnce(next);
+  }
+  kgpDbStatus("");
+  return _db;
 }
 function txStore(name, mode="readonly"){
   return db.transaction(name, mode).objectStore(name);
@@ -4061,10 +4108,12 @@ async function kgpBoot(){
   try{
     db = await openDB();
   }catch(e){
-    document.getElementById("content").innerHTML = `<div class="empty">Erreur d'accès à la base locale (IndexedDB). Essayez un autre navigateur.</div>`;
+    console.error("Ouverture de la base impossible", e);
+    kgpDbStatus(`Erreur d'accès à la base locale (IndexedDB) : ${(e && (e.message || e.name)) || e}. Vérifiez que le navigateur n'est pas en navigation privée et qu'il reste de l'espace disque, sinon essayez un autre navigateur.`);
     return;
   }
-  await seedDefaults();
+  // Une erreur d'initialisation des données par défaut ne doit pas empêcher l'accès.
+  try{ await seedDefaults(); }catch(e){ console.error("Initialisation des données par défaut", e); }
   await kgpBoot();
 })();
 
