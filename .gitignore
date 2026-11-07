@@ -5,3 +5,13 @@
 .env.*
 secrets/
 .kayely/
+
+# Dépendances et builds (Node / Electron)
+node_modules/
+dist/
+out/
+*.log
+
+# Fichiers système
+.DS_Store
+Thumbs.db
