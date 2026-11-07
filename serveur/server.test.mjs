@@ -152,3 +152,11 @@ test("cookie de session protégé", async () => {
   assert.match(set, /HttpOnly/);
   assert.match(set, /SameSite=Strict/);
 });
+
+test("application installée dans un sous-dossier", async () => {
+  const r = await fetch(base + "/kgpro/api/status");
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).server, true);
+  const page = await fetch(base + "/kgpro/");
+  assert.match(await page.text(), /window\.KGP_SERVER = true/);
+});

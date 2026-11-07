@@ -1354,7 +1354,16 @@ async function openDB(){
    Sinon (fichier local, Electron), l'application garde sa base IndexedDB locale. */
 const KGP_SERVER = !!window.KGP_SERVER;
 
+// Adresse de l'API relative à la page : fonctionne aussi quand l'application est
+// installée dans un sous-dossier (ex. https://domaine/kgpro/).
+const KGP_API_BASE = (() => {
+  let p = location.pathname;
+  if (/\.html?$/i.test(p)) p = p.slice(0, p.lastIndexOf("/") + 1);
+  return p.endsWith("/") ? p : p + "/";
+})();
+
 async function kgpApi(method, url, body){
+  url = KGP_API_BASE + url.replace(/^\//, "");
   const res = await fetch(url, {
     method, credentials:"same-origin",
     headers: body !== undefined ? { "Content-Type":"application/json" } : {},
@@ -1363,7 +1372,8 @@ async function kgpApi(method, url, body){
   let data = null;
   try{ data = await res.json(); }catch(e){}
   if (!res.ok){
-    const err = new Error((data && data.error) || ("Erreur serveur " + res.status));
+    const err = new Error((data && data.error)
+      || `Le serveur de l'application ne répond pas à l'adresse ${url} (erreur ${res.status}). Vérifiez l'adresse de l'application dans cPanel.`);
     err.status = res.status; err.errors = data && data.errors;
     if (res.status === 401 && currentUser){ currentUser = null; showLogin(); }
     throw err;

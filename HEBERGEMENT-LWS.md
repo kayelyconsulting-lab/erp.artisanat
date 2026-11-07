@@ -67,5 +67,10 @@ Créez-le **tout de suite** : tant qu'il n'existe pas, le premier visiteur pourr
 
 ## En cas de problème
 
+* **« Erreur serveur (404) » ou « Le serveur de l'application ne répond pas… » :**
+  * dans « Setup Node.js App », le champ *Application URL* doit être `erp.kayelygroup.com`, sans rien après ;
+  * le dossier `public_html` du sous-domaine ne doit pas contenir de copie de `kgpro.html` ni de `.htaccess` qui redirige ;
+  * cliquez sur **Restart** après chaque modification.
+
 * **Page d'erreur Passenger :** dans « Setup Node.js App », vérifiez la version de Node.js (22.13 minimum) et le fichier de démarrage `app.cjs`. Le journal d'erreurs est indiqué sur cette page (souvent `stderr.log` dans le dossier de l'application).
 * **« Node.js … trop ancien » :** choisissez une version de Node.js plus récente.

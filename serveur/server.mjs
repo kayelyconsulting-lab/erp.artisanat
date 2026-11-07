@@ -290,9 +290,13 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
 
   async function handler(req, res){
     const url = new URL(req.url, "http://localhost");
+    // L'hébergeur peut monter l'application dans un sous-dossier (ex. /kgpro/) sans retirer
+    // ce préfixe : on ne garde que la partie utile du chemin.
+    const apiAt = url.pathname.indexOf("/api/");
+    if (apiAt > 0) url.pathname = url.pathname.slice(apiAt);
     try{
       if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
-      if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/kgpro.html")) return send(res, 200, appHtml());
+      if (req.method === "GET" && (url.pathname.endsWith("/") || url.pathname.endsWith("/kgpro.html"))) return send(res, 200, appHtml());
       return send(res, 404, { error: "Introuvable" });
     }catch(e){
       if (e instanceof ValidationError) return send(res, 422, { error: e.message, errors: e.errors });
