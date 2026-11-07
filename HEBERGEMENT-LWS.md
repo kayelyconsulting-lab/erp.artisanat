@@ -1,12 +1,21 @@
 # Héberger KAYELY GESTION PRO chez LWS
 
+Adresse prévue : **https://erp.kayelygroup.com**
+
 ## 1. Vérifier l'offre
 
 Le serveur a besoin de **Node.js**. Chez LWS, Node.js est disponible sur les offres **cPanel L, XL, 2XL, 3XL et CloudCP**, via le menu « Setup Node.js App ».
 Si votre panneau LWS n'a pas ce menu (offre d'entrée de gamme, ou « LWS Panel » sans cPanel), il faut passer à une de ces offres ou à un VPS.
 Les offres PHP seules ne peuvent pas faire tourner le serveur.
 
-## 2. Envoyer les fichiers
+## 2. Créer le sous-domaine `erp.kayelygroup.com`
+
+cPanel → **Domaines** (ou « Sous-domaines ») → **Créer un domaine** : `erp.kayelygroup.com`.
+Si le domaine `kayelygroup.com` est géré chez LWS, l'enregistrement DNS est créé automatiquement.
+Sinon, ajoutez chez votre gestionnaire DNS un enregistrement `A` pour `erp` vers l'adresse IP de l'hébergement LWS (indiquée dans cPanel, colonne de droite « Adresse IP partagée »).
+La propagation peut prendre quelques heures.
+
+## 3. Envoyer les fichiers
 
 Dans cPanel, ouvrez le **Gestionnaire de fichiers** (ou « Git™ Version Control » pour cloner le dépôt).
 Placez l'application dans un dossier **hors de `public_html`**, par exemple `/home/<compte>/kgpro/` :
@@ -21,7 +30,7 @@ kgpro/
 
 Ne pas envoyer : `outils/` (générateur de licence) ni aucune clé privée `.pem`.
 
-## 3. Créer l'application Node.js
+## 4. Créer l'application Node.js
 
 cPanel → **Setup Node.js App** → **Create Application** :
 
@@ -30,7 +39,7 @@ cPanel → **Setup Node.js App** → **Create Application** :
 | Node.js version | **24** (minimum 22.13) |
 | Application mode | Production |
 | Application root | `kgpro` |
-| Application URL | votre domaine (ou un sous-domaine, ex. `erp.mondomaine.fr`) |
+| Application URL | `erp.kayelygroup.com` |
 | Application startup file | `app.cjs` |
 
 Variables d'environnement, facultatives :
@@ -41,17 +50,17 @@ Variables d'environnement, facultatives :
 
 Cliquez sur **Create**, puis sur **Restart**. Il n'y a pas d'`npm install` à lancer : le serveur n'a aucune dépendance.
 
-## 4. Activer HTTPS
+## 5. Activer HTTPS
 
-cPanel → **SSL/TLS Status** (ou **Let's Encrypt**) : activez le certificat pour le domaine.
-Ensuite, ouvrez toujours l'application en `https://…`.
+cPanel → **SSL/TLS Status** (ou **Let's Encrypt**) : activez le certificat pour `erp.kayelygroup.com`.
+Ensuite, ouvrez toujours l'application en `https://erp.kayelygroup.com`.
 
-## 5. Premier accès
+## 6. Premier accès
 
-Ouvrez `https://votre-domaine/`. L'application demande de créer le compte administrateur.
+Ouvrez `https://erp.kayelygroup.com/`. L'application demande de créer le compte administrateur.
 Créez-le **tout de suite** : tant qu'il n'existe pas, le premier visiteur pourrait le créer à votre place.
 
-## 6. Sauvegardes et mises à jour
+## 7. Sauvegardes et mises à jour
 
 * **Sauvegarde :** les données sont dans le fichier SQLite (`donnees/kgpro.sqlite` par défaut, ou `KGP_DB_FILE`). Téléchargez-le régulièrement, ou incluez-le dans les sauvegardes cPanel. Copiez aussi les fichiers `-wal` et `-shm` s'ils existent.
 * **Mise à jour :** remplacez les fichiers, puis **Restart** dans « Setup Node.js App ». La base n'est pas touchée.
