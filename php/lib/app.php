@@ -468,6 +468,11 @@ function kgp_serve_app(): void {
   kgp_security_headers();
   header('Content-Type: text/html; charset=utf-8');
   $societe = json_encode(['slug' => $t['slug'], 'nom' => $t['nom']], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
+  // Clé PUBLIQUE de vérification des licences (créée dans la console) : rien à configurer à la main.
+  $pub = $GLOBALS['KGP_LICENSE_PUBLIC'] ?? null;
+  if ($pub && preg_match('/^[A-Za-z0-9_-]{43}$/', $pub)){
+    $html = preg_replace('/const KGP_LICENSE_PUBLIC_KEY = "[^"]*";/', 'const KGP_LICENSE_PUBLIC_KEY = "' . $pub . '";', $html, 1);
+  }
   $pos = strpos($html, '<head>');
   $inject = "<head>\n<script>window.KGP_SERVER = true; window.KGP_SOCIETE = $societe;</script>";
   echo $pos === false ? $html : substr_replace($html, $inject, $pos, 6);

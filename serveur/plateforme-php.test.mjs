@@ -105,3 +105,49 @@ test("suspension d'une société et code admin oublié", { skip }, async () => {
   assert.equal(alpha.administrateurConfigure, true);
   assert.equal(alpha.utilisateurs, 1);
 });
+
+test("clés d'activation émises par la console", { skip }, async () => {
+  const crypto = await import("node:crypto");
+  assert.equal((await client()("GET", "/console/api/licences")).status, 401);
+  await consoleLogin();
+  let r = await consoleClient("GET", "/console/api/licences");
+  assert.equal(r.data.configured, false);
+  assert.equal((await consoleClient("POST", "/console/api/licences", { slug: "alpha", expiration: "2027-12-31" })).status, 422);
+
+  r = await consoleClient("POST", "/console/api/licences/cle-signature", {});
+  assert.equal(r.status, 200);
+  const pub = r.data.publicKey;
+  assert.match(pub, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal((await consoleClient("POST", "/console/api/licences/cle-signature", {})).status, 409);
+  assert.ok(fs.existsSync(path.join(DATA, "licence-signature.key")));
+
+  for (const expiration of ["2020-01-01", "2027-02-30", "2150-01-01", ""]){
+    assert.equal((await consoleClient("POST", "/console/api/licences", { slug: "alpha", expiration })).status, 422, expiration);
+  }
+  r = await consoleClient("POST", "/console/api/licences", { slug: "alpha", expiration: "2027-12-31" });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.structure, "Alpha SARL");
+  const cle = r.data.cle;
+  assert.match(cle, /^KGP2-271231-[A-Za-z0-9_-]{86}$/);
+
+  // Signature vérifiée par Node.js (Ed25519 standard)
+  const key = crypto.createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(pub, "base64url")]), format: "der", type: "spki" });
+  assert.ok(crypto.verify(null, Buffer.from("KGP2|ALPHASARL|271231"), key, Buffer.from(cle.slice(12), "base64url")));
+
+  // La page de la société embarque la clé publique, et le vérificateur de l'application accepte la clé
+  const page = (await client()("GET", "/alpha/")).data;
+  assert.match(page, new RegExp(`const KGP_LICENSE_PUBLIC_KEY = "${pub}";`));
+  const a = page.indexOf("/* ================= LICENCE D'ACTIVATION"), b = page.indexOf("function kgpGetStoredLicense");
+  const verif = new Function(page.slice(a, b) + ";return kgpValidateKey;")();
+  assert.ok(verif("Alpha SARL", cle));
+  assert.ok(verif("alpha sarl", cle));
+  assert.equal(verif("Beta SA", cle), null);
+
+  // Structure libre avec accents (version installée sur un poste)
+  r = await consoleClient("POST", "/console/api/licences", { slug: "", structure: "Boulangerie Étoile", expiration: "2028-06-30" });
+  assert.equal(r.status, 200);
+  assert.ok(verif("Boulangerie Étoile", r.data.cle));
+
+  const hist = (await consoleClient("GET", "/console/api/licences")).data.licences;
+  assert.equal(hist.length, 2);
+});

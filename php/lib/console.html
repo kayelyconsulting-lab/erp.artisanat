@@ -34,6 +34,10 @@
   .actions{display:flex;gap:6px;flex-wrap:wrap} .actions button{padding:7px 10px;font-size:12px}
   a{color:var(--navy)} code{background:#EEF2F9;padding:1px 6px;border-radius:5px}
   .hidden{display:none}
+  select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px;background:#F3F6FB;color:var(--ink)}
+  .keybox{margin-top:14px;background:#F3F6FB;border:1px dashed var(--navy);border-radius:10px;padding:14px}
+  .keybox textarea{width:100%;border:0;background:transparent;font-family:ui-monospace,Consolas,monospace;font-size:13px;resize:none;color:var(--ink);word-break:break-all}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all}
   @media (max-width:640px){ thead{display:none} tr{display:block;border-bottom:1px solid var(--line);padding:8px 0} td{display:block;border:0;padding:4px 0} }
 </style>
 </head>
@@ -84,6 +88,44 @@
       <p class="sub hidden" id="empty" style="margin:12px 0 0">Aucune société pour l'instant.</p>
     </div>
 
+    <div class="card" id="licCard">
+      <h2>Clés d'activation</h2>
+      <div class="msg" id="licMsg"></div>
+      <div class="hidden" id="licNoSodium"><p class="sub">L'extension PHP <b>sodium</b> n'est pas activée. Dans LWS Panel : <i>Configuration php</i> → cochez <b>sodium</b>, puis rechargez cette page.</p></div>
+      <div class="hidden" id="licSetup">
+        <p class="sub">Pour émettre des clés, la console a besoin d'une <b>clé de signature</b>. Elle est créée une seule fois et rangée dans le dossier des données (<code>kgpro-donnees/licence-signature.key</code>), hors du site public. Pensez à la sauvegarder avec le reste du dossier : sans elle, impossible d'émettre de nouvelles clés reconnues par les installations existantes.</p>
+        <button class="gold full" type="button" id="licCreateKey">Créer la clé de signature</button>
+      </div>
+      <form class="hidden" id="licForm">
+        <p class="sub">La clé est liée au <b>nom de la structure</b> et à la <b>date d'échéance</b> : le client saisit ce même nom avec la clé dans l'écran d'activation (il est prérempli pour les sociétés hébergées ici).</p>
+        <div class="row">
+          <div><label>Société</label><select id="licSociete"></select></div>
+          <div><label>Nom de la structure</label><input id="licStructure" maxlength="120"></div>
+        </div>
+        <div class="row">
+          <div><label>Durée</label>
+            <select id="licDuree">
+              <option value="1">1 mois</option><option value="3">3 mois</option><option value="6">6 mois</option>
+              <option value="12" selected>1 an</option><option value="24">2 ans</option><option value="0">Date au choix</option>
+            </select></div>
+          <div><label>Date d'échéance</label><input id="licDate" type="date"></div>
+        </div>
+        <button class="gold full" type="submit">Générer la clé</button>
+        <div class="keybox hidden" id="licResult">
+          <div style="font-size:12px;color:var(--soft);margin-bottom:6px" id="licResultInfo"></div>
+          <textarea id="licKey" rows="3" readonly></textarea>
+          <button class="ghost" type="button" id="licCopy" style="margin-top:6px">Copier la clé</button>
+        </div>
+      </form>
+      <div id="licHistWrap" class="hidden" style="margin-top:18px">
+        <h2 style="font-size:15px">Clés émises</h2>
+        <table>
+          <thead><tr><th>Émise le</th><th>Structure</th><th>Échéance</th><th>Clé</th></tr></thead>
+          <tbody id="licHist"></tbody>
+        </table>
+      </div>
+    </div>
+
     <form class="card" id="pwForm">
       <h2>Mot de passe de la console</h2>
       <div class="msg" id="pwMsg"></div>
@@ -124,12 +166,13 @@ async function boot(){
     const st = await api("GET", "status");
     if (!st.configured) show("setupView");
     else if (!st.loggedIn) show("loginView");
-    else { show("mainView"); await refresh(); }
+    else { show("mainView"); await refresh(); await refreshLicences(); }
   }catch(e){ document.querySelector("main").textContent = "Serveur injoignable : " + e.message; }
 }
 
 async function refresh(){
   const rows = await api("GET", "societes");
+  societesCache = rows;
   const tb = $("list"); tb.innerHTML = "";
   $("empty").classList.toggle("hidden", rows.length > 0);
   for (const s of rows){
@@ -156,14 +199,18 @@ async function refresh(){
     btn("Renommer", "ghost", async () => {
       const nouveau = prompt("Nouveau nom de la société :", s.nom);
       if (!nouveau) return;
-      try{ await api("POST", "societes/" + s.slug + "/nom", { nom: nouveau }); await refresh(); }catch(e){ msg("listMsg", e.message); }
+      try{ await api("POST", "societes/" + s.slug + "/nom", { nom: nouveau }); await refresh(); await refreshLicences(); }catch(e){ msg("listMsg", e.message); }
     });
     if (s.statut === "Active") btn("Suspendre", "danger", async () => {
       if (!confirm("Suspendre l'accès de « " + s.nom + " » ? Ses données sont conservées.")) return;
-      try{ await api("POST", "societes/" + s.slug + "/statut", { statut: "Suspendue" }); await refresh(); }catch(e){ msg("listMsg", e.message); }
+      try{ await api("POST", "societes/" + s.slug + "/statut", { statut: "Suspendue" }); await refresh(); await refreshLicences(); }catch(e){ msg("listMsg", e.message); }
     });
     else btn("Réactiver", "ghost", async () => {
-      try{ await api("POST", "societes/" + s.slug + "/statut", { statut: "Active" }); await refresh(); }catch(e){ msg("listMsg", e.message); }
+      try{ await api("POST", "societes/" + s.slug + "/statut", { statut: "Active" }); await refresh(); await refreshLicences(); }catch(e){ msg("listMsg", e.message); }
+    });
+    btn("Clé d'activation", "ghost", () => {
+      $("licSociete").value = s.slug; onLicSociete();
+      $("licCard").scrollIntoView({ behavior: "smooth" });
     });
     if (s.administrateurConfigure) btn("Code admin oublié", "ghost", async () => {
       if (!confirm("Générer un code provisoire pour l'administrateur de « " + s.nom + " » ? Il devra le changer à sa connexion.")) return;
@@ -177,15 +224,80 @@ async function refresh(){
   }
 }
 
+/* ---- clés d'activation ---- */
+let societesCache = [];
+const fmtDate = d => d.split("-").reverse().join("/");
+function addMonths(n){
+  const d = new Date(); d.setMonth(d.getMonth() + n);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function onLicSociete(){
+  const slug = $("licSociete").value;
+  const s = societesCache.find(x => x.slug === slug);
+  $("licStructure").value = s ? s.nom : "";
+  $("licStructure").readOnly = !!s;
+}
+function onLicDuree(){
+  const n = Number($("licDuree").value);
+  $("licDate").readOnly = n !== 0;
+  if (n) $("licDate").value = addMonths(n);
+}
+async function refreshLicences(){
+  const r = await api("GET", "licences");
+  $("licNoSodium").classList.toggle("hidden", r.sodium);
+  $("licSetup").classList.toggle("hidden", !r.sodium || r.configured);
+  $("licForm").classList.toggle("hidden", !r.sodium || !r.configured);
+  const sel = $("licSociete"), keep = sel.value;
+  sel.innerHTML = "";
+  for (const s of societesCache){ const o = document.createElement("option"); o.value = s.slug; o.textContent = s.nom; sel.appendChild(o); }
+  const o = document.createElement("option"); o.value = ""; o.textContent = "Autre structure (version installée sur un poste)"; sel.appendChild(o);
+  if ([...sel.options].some(x => x.value === keep)) sel.value = keep;
+  onLicSociete();
+  if (!$("licDate").value) onLicDuree();
+  const tb = $("licHist"); tb.innerHTML = "";
+  $("licHistWrap").classList.toggle("hidden", r.licences.length === 0);
+  for (const l of r.licences){
+    const tr = document.createElement("tr");
+    const cells = [new Date(l.cree_le * 1000).toLocaleDateString("fr-FR"), l.structure, fmtDate(l.expiration)];
+    for (const c of cells){ const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
+    const td = document.createElement("td");
+    const code = document.createElement("div"); code.className = "mono"; code.textContent = l.cle.slice(0, 24) + "…"; td.appendChild(code);
+    const b = document.createElement("button"); b.type = "button"; b.className = "ghost"; b.style.cssText = "padding:5px 9px;font-size:12px;margin-top:4px";
+    b.textContent = "Copier"; b.onclick = () => copyText(l.cle, "licMsg"); td.appendChild(b);
+    tr.appendChild(td); tb.appendChild(tr);
+  }
+}
+async function copyText(text, msgId){
+  try{ await navigator.clipboard.writeText(text); msg(msgId, "Clé copiée.", true); }
+  catch(e){ prompt("Copiez la clé :", text); }
+}
+$("licSociete").addEventListener("change", onLicSociete);
+$("licDuree").addEventListener("change", onLicDuree);
+$("licCreateKey").onclick = async () => {
+  try{ await api("POST", "licences/cle-signature", {}); msg("licMsg", "Clé de signature créée. Vous pouvez émettre des clés d'activation.", true); await refreshLicences(); }
+  catch(e){ msg("licMsg", e.message); }
+};
+$("licForm").addEventListener("submit", async e => {
+  e.preventDefault(); msg("licMsg", "");
+  try{
+    const r = await api("POST", "licences", { slug: $("licSociete").value, structure: $("licStructure").value, expiration: $("licDate").value });
+    $("licKey").value = r.cle;
+    $("licResultInfo").textContent = "Structure : " + r.structure + " — valable jusqu'au " + fmtDate(r.expiration);
+    $("licResult").classList.remove("hidden");
+    await refreshLicences();
+  }catch(e){ if (e.status === 401) return show("loginView"); msg("licMsg", e.message); }
+});
+$("licCopy").onclick = () => copyText($("licKey").value, "licMsg");
+
 $("setupView").addEventListener("submit", async e => {
   e.preventDefault(); msg("setupMsg", "");
   if ($("setupPass").value !== $("setupPass2").value) return msg("setupMsg", "Les deux mots de passe ne correspondent pas.");
-  try{ await api("POST", "setup", { code: $("setupCode").value, password: $("setupPass").value }); show("mainView"); await refresh(); }
+  try{ await api("POST", "setup", { code: $("setupCode").value, password: $("setupPass").value }); show("mainView"); await refresh(); await refreshLicences(); }
   catch(e){ msg("setupMsg", e.message); }
 });
 $("loginView").addEventListener("submit", async e => {
   e.preventDefault(); msg("loginMsg", "");
-  try{ await api("POST", "login", { password: $("loginPass").value }); $("loginPass").value = ""; show("mainView"); await refresh(); }
+  try{ await api("POST", "login", { password: $("loginPass").value }); $("loginPass").value = ""; show("mainView"); await refresh(); await refreshLicences(); }
   catch(e){ msg("loginMsg", e.message); }
 });
 $("logoutBtn").onclick = async () => { await api("POST", "logout", {}).catch(() => {}); show("loginView"); };
@@ -202,7 +314,7 @@ $("createForm").addEventListener("submit", async e => {
     const s = await api("POST", "societes", { nom: $("newNom").value, slug: slugify($("newSlug").value) });
     msg("createMsg", "Société créée. Adresse à transmettre : " + urlOf(s.slug) + " — à la première ouverture, la société crée son compte administrateur.", true);
     $("newNom").value = ""; $("newSlug").value = ""; $("newUrl").textContent = "—"; slugTouched = false;
-    await refresh();
+    await refresh(); await refreshLicences();
   }catch(e){ if (e.status === 401) return show("loginView"); msg("createMsg", e.message); }
 });
 $("pwForm").addEventListener("submit", async e => {

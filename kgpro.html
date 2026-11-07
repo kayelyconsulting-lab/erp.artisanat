@@ -4077,6 +4077,7 @@ function kgpOpenActivation(expiredMode, renewalMode){
   }
   const stored = kgpGetStoredLicense();
   if (stored && stored.company) document.getElementById("actCompany").value = stored.company;
+  else if (window.KGP_SOCIETE) document.getElementById("actCompany").value = window.KGP_SOCIETE.nom;
   document.getElementById("actKey").value = "";
   document.getElementById("actError").textContent = "";
   document.getElementById("activationScreen").style.display = "flex";

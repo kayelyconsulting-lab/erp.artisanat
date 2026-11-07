@@ -25,7 +25,7 @@ Il n'y a aucun mélange entre elles :
 |---|---|
 | `https://erp.kayelygroup.com/` | page d'accueil : la société saisit son code |
 | `https://erp.kayelygroup.com/<code>/` | l'espace de la société (ex. `/cabinet-abc/`) |
-| `https://erp.kayelygroup.com/console/` | **console Kayely Group** : créer, renommer, suspendre une société, débloquer un administrateur |
+| `https://erp.kayelygroup.com/console/` | **console Kayely Group** : créer, renommer, suspendre une société, débloquer un administrateur, **émettre les clés d'activation** |
 
 ## Étapes dans LWS Panel
 
@@ -39,11 +39,26 @@ Il n'y a aucun mélange entre elles :
 6. **Créer une société** dans la console (nom + code) et transmettez son adresse au client.
    À la première ouverture de son adresse, la société crée **son** compte administrateur.
 
+## Clés d'activation (licences)
+
+Dans la console, section **« Clés d'activation »** :
+
+1. **Une seule fois :** cliquez sur « Créer la clé de signature ». Il faut l'extension PHP `sodium` (*Configuration php*).
+   La clé privée est rangée dans `kgpro-donnees/licence-signature.key`, hors du code et hors du site public.
+   La clé publique est insérée automatiquement dans l'application de chaque société.
+2. Choisissez la société (ou « Autre structure » pour une version installée sur un poste), puis la durée (1 mois à 2 ans, ou une date au choix).
+   Cliquez sur **Générer la clé**, puis **Copier la clé**, et transmettez-la au client.
+3. Le client ouvre l'écran d'activation : le nom de sa société est déjà rempli. Il colle la clé et valide.
+
+Toutes les clés émises restent listées dans la console.
+**Sauvegardez `licence-signature.key` avec le reste du dossier.** Si ce fichier est perdu, il faut en créer un nouveau : les clés déjà émises ne seront plus reconnues et devront être réémises.
+
 ## Où sont les données ?
 
 Dans le dossier `kgpro-donnees/`, créé automatiquement hors de `htdocs` (sinon dans `donnees/`, protégé) :
 
-* `plateforme.sqlite` : la liste des sociétés et la console ;
+* `plateforme.sqlite` : la liste des sociétés, la console et l'historique des clés d'activation ;
+* `licence-signature.key` : la clé privée qui signe les clés d'activation ;
 * `societes/<code>.sqlite` : **la base de chaque société**.
 
 Sauvegardez tout le dossier `kgpro-donnees` (*Sauvegardes / Restaurations*, ou téléchargement depuis le Gestionnaire de fichiers).

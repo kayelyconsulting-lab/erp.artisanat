@@ -28,6 +28,8 @@ function kgp_platform_db(): PDO {
     CREATE TABLE IF NOT EXISTS console_sessions (token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS console_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, first INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS console_audit (at INTEGER NOT NULL, action TEXT NOT NULL, detail TEXT);
+    CREATE TABLE IF NOT EXISTS licences (id INTEGER PRIMARY KEY AUTOINCREMENT, structure TEXT NOT NULL, slug TEXT,
+      expiration TEXT NOT NULL, cle TEXT NOT NULL, cree_le INTEGER NOT NULL);
   ");
   return $pdo;
 }
@@ -200,6 +202,8 @@ function kgp_handle_console_api(string $p, string $base): void {
       return;
     }
 
+    if (kgp_licences_api($p, $method)) return;
+
     if ($p === '/api/societes' && $method === 'GET'){
       $rows = kgp_platform_db()->query('SELECT slug, nom, statut, cree_le FROM societes ORDER BY nom')->fetchAll(PDO::FETCH_ASSOC);
       kgp_send(array_map('kgp_societe_infos', $rows));
@@ -278,6 +282,85 @@ function kgp_transaction_platform(callable $fn){
   catch (Throwable $e){ $db->exec('ROLLBACK'); throw $e; }
 }
 
+/* ---------------- clés d'activation (licences) ---------------- */
+// Les clés KGP2 sont signées en Ed25519 (extension PHP sodium) avec une clé PRIVÉE rangée
+// dans le dossier des données (hors du code et hors de la partie publique du site).
+// Seule la clé PUBLIQUE est envoyée aux navigateurs, insérée dans l'application servie.
+
+function kgp_licence_key_file(): string { return kgp_data_dir() . '/licence-signature.key'; }
+function kgp_sodium_ok(): bool { return function_exists('sodium_crypto_sign_detached'); }
+function kgp_b64url(string $bin): string { return rtrim(strtr(base64_encode($bin), '+/', '-_'), '='); }
+function kgp_licence_public(): ?string { return kgp_config_get('licence_public'); }
+
+function kgp_licence_secret(): string {
+  $raw = @file_get_contents(kgp_licence_key_file());
+  $sk = $raw === false ? false : base64_decode(trim($raw), true);
+  if ($sk === false || strlen($sk) !== 64) throw new HttpError(500, 'Clé de signature des licences illisible : vérifiez le fichier licence-signature.key dans kgpro-donnees.');
+  return $sk;
+}
+
+// Même normalisation que l'application (kgpNormalizeCompany) : majuscules, sans espaces ni signes.
+function kgp_normalize_company(string $name): string {
+  $up = function_exists('mb_strtoupper') ? mb_strtoupper(trim($name), 'UTF-8') : strtoupper(trim($name));
+  return preg_replace('/[^A-Z0-9]/', '', $up);
+}
+
+function kgp_sign_licence(string $structure, string $expiration): string {
+  $yymmdd = substr($expiration, 2, 2) . substr($expiration, 5, 2) . substr($expiration, 8, 2);
+  $message = 'KGP2|' . kgp_normalize_company($structure) . '|' . $yymmdd;
+  return 'KGP2-' . $yymmdd . '-' . kgp_b64url(sodium_crypto_sign_detached($message, kgp_licence_secret()));
+}
+
+function kgp_licences_api(string $p, string $method): bool {
+  if ($p === '/api/licences' && $method === 'GET'){
+    $rows = kgp_platform_db()->query('SELECT id, structure, slug, expiration, cle, cree_le FROM licences ORDER BY id DESC LIMIT 200')->fetchAll(PDO::FETCH_ASSOC);
+    kgp_send(['sodium' => kgp_sodium_ok(), 'configured' => kgp_licence_public() !== null, 'publicKey' => kgp_licence_public(), 'licences' => $rows]);
+    return true;
+  }
+  if ($p === '/api/licences/cle-signature' && $method === 'POST'){
+    if (!kgp_sodium_ok()) throw new HttpError(500, "L'extension PHP sodium n'est pas activée (Configuration php).");
+    if (kgp_licence_public() !== null || is_file(kgp_licence_key_file())) throw new HttpError(409, 'La clé de signature existe déjà.');
+    $kp = sodium_crypto_sign_keypair();
+    kgp_prepare_dir(kgp_data_dir());
+    if (@file_put_contents(kgp_licence_key_file(), base64_encode(sodium_crypto_sign_secretkey($kp)) . "\n", LOCK_EX) === false){
+      throw new HttpError(500, "Impossible d'enregistrer la clé de signature dans le dossier des données.");
+    }
+    @chmod(kgp_licence_key_file(), 0600);
+    kgp_config_set('licence_public', kgp_b64url(sodium_crypto_sign_publickey($kp)));
+    kgp_console_audit('licence-key');
+    kgp_send(['publicKey' => kgp_licence_public()]);
+    return true;
+  }
+  if ($p === '/api/licences' && $method === 'POST'){
+    if (!kgp_sodium_ok()) throw new HttpError(500, "L'extension PHP sodium n'est pas activée (Configuration php).");
+    if (kgp_licence_public() === null) throw new ValidationError(["Créez d'abord la clé de signature."]);
+    $b = kgp_body();
+    $slug = is_string($b['slug'] ?? null) && $b['slug'] !== '' ? $b['slug'] : null;
+    $structure = trim((string)($b['structure'] ?? ''));
+    $expiration = (string)($b['expiration'] ?? '');
+    $errors = [];
+    if ($slug !== null){
+      $societe = kgp_find_societe($slug);
+      if (!$societe) $errors[] = 'Société inconnue.';
+      elseif ($structure === '') $structure = $societe['nom'];
+    }
+    if ($structure === '' || kgp_strlen($structure) > 120) $errors[] = 'Nom de la structure : obligatoire (120 caractères maximum).';
+    elseif (kgp_normalize_company($structure) === '') $errors[] = 'Le nom de la structure doit contenir au moins une lettre ou un chiffre.';
+    if (!kgp_valid_date($expiration)) $errors[] = "Date d'échéance invalide.";
+    elseif ($expiration <= date('Y-m-d')) $errors[] = "La date d'échéance doit être dans le futur.";
+    elseif ($expiration > '2099-12-31') $errors[] = "Date d'échéance trop lointaine (2099 maximum).";
+    if ($errors) throw new ValidationError($errors);
+
+    $cle = kgp_sign_licence($structure, $expiration);
+    kgp_platform_db()->prepare('INSERT INTO licences (structure, slug, expiration, cle, cree_le) VALUES (?, ?, ?, ?, ?)')
+      ->execute([$structure, $slug, $expiration, $cle, time()]);
+    kgp_console_audit('licence', ($slug ?? '-') . ' ' . $expiration);
+    kgp_send(['structure' => $structure, 'slug' => $slug, 'expiration' => $expiration, 'cle' => $cle]);
+    return true;
+  }
+  return false;
+}
+
 /* ---------------- aiguillage des adresses ---------------- */
 
 function kgp_html_page(string $file, int $status = 200, array $vars = []): void {
@@ -326,6 +409,7 @@ function kgp_route(): void {
       return;
     }
     kgp_use_tenant($societe, $base);
+    $GLOBALS['KGP_LICENSE_PUBLIC'] = kgp_licence_public();
     if ($isApi($rest)){ kgp_handle_api($apiPart($rest)); return; }
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET'){ kgp_send(['error' => 'Méthode non autorisée'], 405); return; }
     kgp_serve_app();

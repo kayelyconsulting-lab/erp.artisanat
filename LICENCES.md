@@ -10,7 +10,13 @@
 
 Format des nouvelles clés : `KGP2-AAMMJJ-<signature>` (la signature porte sur la structure + la date).
 
-## Mise en place (une seule fois)
+## Hébergement PHP (LWS) : tout se fait dans la console
+
+Sur l'hébergement PHP, la console (`/console/`, section « Clés d'activation ») crée la clé de signature, émet les clés et garde l'historique.
+La clé publique est insérée automatiquement dans l'application servie. Voir `HEBERGEMENT-LWS.md`.
+L'outil ci-dessous sert pour une version distribuée hors serveur (fichier local, Electron).
+
+## Mise en place hors serveur (une seule fois)
 
 ```bash
 node outils/kgp-licence.mjs init --html kgpro.html

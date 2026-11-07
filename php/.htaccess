@@ -14,6 +14,6 @@ Options -Indexes
 </IfModule>
 
 # Fichiers internes jamais accessibles depuis le web
-<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|json|md|mjs|cjs|pem|log|txt)$">
+<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|json|md|mjs|cjs|pem|key|log|txt)$">
   Require all denied
 </FilesMatch>
