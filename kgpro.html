@@ -716,7 +716,9 @@ async function generateNumero(storeKey){
   const prefix = NUMERO_PREFIXES[storeKey];
   if (!prefix) return "";
   const all = await getAllSafe(storeKey);
-  return prefix + "-" + String(all.length + 1).padStart(4,"0");
+  const re = new RegExp("^" + prefix.replace(/[-]/g, "\\-") + "-(\\d+)$");
+  const max = all.reduce((m, r) => { const x = re.exec(r.numero || ""); return x ? Math.max(m, Number(x[1])) : m; }, 0);
+  return prefix + "-" + String(Math.max(max, all.length) + 1).padStart(4,"0");
 }
 
 /* ---- Plan comptable SYSCOHADA révisé (classes 1 à 8) ----
@@ -1347,10 +1349,33 @@ async function openDB(){
   kgpDbStatus("");
   return _db;
 }
+/* Mode serveur : quand la page est servie par serveur/server.mjs, toutes les lectures et
+   écritures passent par l'API, qui vérifie la session, les droits et chaque donnée.
+   Sinon (fichier local, Electron), l'application garde sa base IndexedDB locale. */
+const KGP_SERVER = !!window.KGP_SERVER;
+
+async function kgpApi(method, url, body){
+  const res = await fetch(url, {
+    method, credentials:"same-origin",
+    headers: body !== undefined ? { "Content-Type":"application/json" } : {},
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try{ data = await res.json(); }catch(e){}
+  if (!res.ok){
+    const err = new Error((data && data.error) || ("Erreur serveur " + res.status));
+    err.status = res.status; err.errors = data && data.errors;
+    if (res.status === 401 && currentUser){ currentUser = null; showLogin(); }
+    throw err;
+  }
+  return data;
+}
+
 function txStore(name, mode="readonly"){
   return db.transaction(name, mode).objectStore(name);
 }
 function getAll(store){
+  if (KGP_SERVER) return kgpApi("GET", "/api/data/" + encodeURIComponent(store));
   return new Promise((resolve,reject)=>{
     const r = txStore(store).getAll();
     r.onsuccess = () => resolve(r.result);
@@ -1358,6 +1383,10 @@ function getAll(store){
   });
 }
 function putRecord(store, record){
+  if (KGP_SERVER){
+    return kgpApi("PUT", "/api/data/" + encodeURIComponent(store), record)
+      .then(r => { notifyDataChanged(); return r.id; });
+  }
   return new Promise((resolve,reject)=>{
     const r = txStore(store,"readwrite").put(record);
     r.onsuccess = () => { resolve(r.result); notifyDataChanged(); };
@@ -1365,6 +1394,10 @@ function putRecord(store, record){
   });
 }
 function deleteRecord(store, id){
+  if (KGP_SERVER){
+    return kgpApi("DELETE", "/api/data/" + encodeURIComponent(store) + "/" + Number(id))
+      .then(() => { notifyDataChanged(); });
+  }
   return new Promise((resolve,reject)=>{
     const r = txStore(store,"readwrite").delete(id);
     r.onsuccess = () => { resolve(); notifyDataChanged(); };
@@ -2448,7 +2481,7 @@ async function saveForm(storeKey, id){
     }
     const el = document.getElementById("f_"+f.k);
     let v = el.value;
-    if (f.req && !v) missing = true;
+    if (f.req && !v && !(f.t === "password" && id)) missing = true;
     if (f.t === "number") v = v==="" ? 0 : Number(v);
     record[f.k] = v;
   });
@@ -4091,7 +4124,12 @@ async function kgpBoot(){
     kgpOpenActivation(false, false);
     return; // bloque l'accès tant que non activé
   }
-  if ((await getAllSafe("utilisateurs")).length === 0){
+  if (KGP_SERVER){
+    let st = null;
+    try{ st = await kgpApi("GET", "/api/status"); }
+    catch(e){ kgpDbStatus("Serveur injoignable : vérifiez la connexion réseau puis rechargez la page."); return; }
+    if (st.needsSetup){ showSetup("create"); return; }
+  } else if ((await getAllSafe("utilisateurs")).length === 0){
     showSetup("create");
     return;
   }
@@ -4105,6 +4143,14 @@ async function kgpBoot(){
 /* =============== FIN LICENCE D'ACTIVATION =============== */
 
 (async function init(){
+  if (KGP_SERVER){
+    // Les erreurs de validation renvoyées par le serveur sont affichées à l'utilisateur.
+    window.addEventListener("unhandledrejection", e => {
+      if (e.reason && e.reason.status) toast(e.reason.message);
+    });
+    await kgpBoot();
+    return;
+  }
   try{
     db = await openDB();
   }catch(e){
@@ -4211,6 +4257,16 @@ async function submitSetup(){
   if (LEGACY_DEFAULT_PASSWORDS.includes(pass)) return fail("Ce code secret est interdit : choisissez-en un autre.");
   if (pass !== document.getElementById("setupPass2").value) return fail("Les deux codes secrets ne correspondent pas.");
 
+  if (KGP_SERVER){
+    try{
+      const r = setupMode === "create"
+        ? await kgpApi("POST", "/api/setup", { login, password: pass })
+        : await kgpApi("POST", "/api/password", { password: pass });
+      currentUser = r.user;
+    }catch(e){ return fail(e.message); }
+    await kgpAfterServerLogin();
+    return;
+  }
   if (setupMode === "create"){
     if ((await getAllSafe("utilisateurs")).length > 0){ showLogin(); return; }
     await putRecord("utilisateurs", {
@@ -4255,6 +4311,19 @@ async function attemptLogin(){
     errBox.classList.add("show");
     return;
   }
+  if (KGP_SERVER){
+    try{
+      const r = await kgpApi("POST", "/api/login", { login: loginVal, password: passVal });
+      currentUser = r.user;
+    }catch(e){
+      errBox.textContent = e.message;
+      errBox.classList.add("show");
+      return;
+    }
+    if (currentUser.doitChangerMotDePasse){ showSetup("change"); return; }
+    await kgpAfterServerLogin();
+    return;
+  }
   const users = await getAllSafe("utilisateurs");
   const user = users.find(u => (u.login||"").toLowerCase() === loginVal.toLowerCase());
 
@@ -4279,7 +4348,23 @@ async function attemptLogin(){
   enterApp();
 }
 
+// Mode serveur : après connexion, initialise les données par défaut (plan comptable,
+// paramètres de paie...) puis ouvre l'application.
+async function kgpAfterServerLogin(){
+  try{ await seedDefaults(); }catch(e){ console.error("Initialisation des données par défaut", e); }
+  enterApp();
+}
+
 async function restoreSession(){
+  if (KGP_SERVER){
+    try{
+      const r = await kgpApi("GET", "/api/me");
+      if (r.user.doitChangerMotDePasse) return false;
+      currentUser = r.user;
+      try{ await seedDefaults(); }catch(e){ console.error(e); }
+      return true;
+    }catch(e){ return false; }
+  }
   try{
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return false;
@@ -4297,12 +4382,15 @@ async function restoreSession(){
 }
 
 function logout(){
+  if (KGP_SERVER) kgpApi("POST", "/api/logout", {}).catch(()=>{});
   localStorage.removeItem(SESSION_KEY);
   currentUser = null;
   showLogin();
 }
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && KGP_SERVER) {
+  navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(()=>{});
+} else if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('service-worker.js').catch(() => {});
   });

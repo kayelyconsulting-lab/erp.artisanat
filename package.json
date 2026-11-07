@@ -1,0 +1,12 @@
+{
+  "name": "kayely-gestion-pro",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "KAYELY GESTION PRO — application et serveur de vérification des données",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node serveur/server.mjs",
+    "test": "node --test serveur/*.test.mjs"
+  }
+}
