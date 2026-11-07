@@ -306,12 +306,22 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
   return { handler, db, schema };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)){
+// Démarre le serveur. Appelé directement (npm start) ou par app.cjs (Phusion Passenger,
+// utilisé par les hébergements cPanel comme LWS : Passenger intercepte listen()).
+export function startServer(){
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  if (major < 22 || (major === 22 && minor < 13)){
+    throw new Error(`Node.js ${process.versions.node} trop ancien : choisissez Node.js 22.13 ou plus récent (24 conseillé).`);
+  }
   const port = Number(process.env.PORT || 8080);
   const host = process.env.HOST || "127.0.0.1";
   const dbFile = path.resolve(process.env.KGP_DB_FILE || path.join(ROOT, "donnees", "kgpro.sqlite"));
   const { handler } = createApp({ appFile: process.env.KGP_APP_FILE || path.join(ROOT, "kgpro.html"), dbFile });
-  http.createServer(handler).listen(port, host, () => {
+  const server = http.createServer(handler);
+  server.listen(port, host, () => {
     console.log(`KAYELY GESTION PRO : http://${host}:${port}  (base : ${dbFile})`);
   });
+  return server;
 }
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) startServer();
