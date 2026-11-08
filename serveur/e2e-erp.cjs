@@ -9,22 +9,29 @@ const os = require("os");
 const path = require("path");
 const assert = require("assert/strict");
 
+// Mode distant : KGP_E2E_URL=https://erp.exemple.com/<code-société> (société NEUVE, créée
+// dans la console et jamais ouverte : le test crée son administrateur et des données d'essai).
+const REMOTE = process.env.KGP_E2E_URL ? process.env.KGP_E2E_URL.replace(/\/+$/, "") : "";
 const ROOT = path.resolve(__dirname, "..");
 const data = fs.mkdtempSync(path.join(os.tmpdir(), "kgp-e2e-"));
-fs.copyFileSync(path.join(ROOT, "kgpro.html"), path.join(ROOT, "php", "lib", "kgpro.html"));
 const port = 19000 + Math.floor(Math.random() * 900);
-const R = `http://127.0.0.1:${port}`;
-const logFd = fs.openSync(path.join(data, "php.log"), "a");
-const php = spawn("php", ["-S", `127.0.0.1:${port}`, path.join(ROOT, "php", "dev-router.php")],
-  { env: { ...process.env, KGP_DATA_DIR: data, PHP_CLI_SERVER_WORKERS: "6" }, stdio: ["ignore", "ignore", logFd] });
+const R = REMOTE ? new URL(REMOTE).origin : `http://127.0.0.1:${port}`;
+const SOCIETE_PATH = REMOTE ? new URL(REMOTE).pathname : "/demo";
+let php = { kill(){} };
+if (!REMOTE){
+  fs.copyFileSync(path.join(ROOT, "kgpro.html"), path.join(ROOT, "php", "lib", "kgpro.html"));
+  const logFd = fs.openSync(path.join(data, "php.log"), "a");
+  php = spawn("php", ["-S", `127.0.0.1:${port}`, path.join(ROOT, "php", "dev-router.php")],
+    { env: { ...process.env, KGP_DATA_DIR: data, PHP_CLI_SERVER_WORKERS: "6" }, stdio: ["ignore", "ignore", logFd] });
+}
 
 let passed = 0, browser = null, page = null;
 function ok(label){ passed++; console.log("  ✓ " + label); }
 
 (async () => {
-  await new Promise(r => setTimeout(r, 700));
+  if (!REMOTE) await new Promise(r => setTimeout(r, 700));
   // Console + société de test (processus séparé : voir test-php.mjs)
-  const prep = spawnSync(process.execPath, ["-e", `
+  const prep = REMOTE ? { status: 0 } : spawnSync(process.execPath, ["-e", `
     (async () => {
       const fs = require("fs");
       await fetch(${JSON.stringify(R)} + "/console/api/status");
@@ -44,7 +51,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   page.on("pageerror", e => errors.push(e.message));
   page.on("dialog", d => d.accept());
   await page.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
-  await page.goto(R + "/demo/");
+  await page.goto(R + SOCIETE_PATH + "/");
   await page.waitForSelector("#setupCard", { state: "visible" });
   await page.fill("#setupPass", "Admin-Demo-2026"); await page.fill("#setupPass2", "Admin-Demo-2026");
   await page.click("#setupCard button");
@@ -254,7 +261,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   const p2 = await ctx.newPage(); p2.on("pageerror", e => errors.push("compta: " + e.message)); p2.on("dialog", d => d.accept());
   await p2.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
   await ev(() => logout());
-  await p2.goto(R + "/demo/");
+  await p2.goto(R + SOCIETE_PATH + "/");
   await p2.fill("#loginUser", "compta"); await p2.fill("#loginPass", "Compta-Init-2026"); await p2.click("#loginCard button");
   await p2.waitForSelector("#setupCard", { state: "visible" });
   await p2.fill("#setupPass", "Compta-Perso-2026"); await p2.fill("#setupPass2", "Compta-Perso-2026"); await p2.click("#setupCard button");
@@ -277,9 +284,11 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
 
   assert.deepEqual(errors, [], "aucune erreur JavaScript");
   ok("aucune erreur JavaScript");
-  const log = fs.readFileSync(path.join(data, "php.log"), "utf8").split("\n").filter(l => /Fatal|Warning|Deprecated|Notice/.test(l));
-  assert.deepEqual(log, [], "aucun avertissement PHP");
-  ok("aucun avertissement PHP");
+  if (!REMOTE){
+    const log = fs.readFileSync(path.join(data, "php.log"), "utf8").split("\n").filter(l => /Fatal|Warning|Deprecated|Notice/.test(l));
+    assert.deepEqual(log, [], "aucun avertissement PHP");
+    ok("aucun avertissement PHP");
+  }
   console.log(`\n${passed} vérifications réussies`);
   await browser.close();
 })().catch(async e => {
