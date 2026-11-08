@@ -250,7 +250,7 @@ function kgp_assert_can_write(array $user, array $mod): void {
 /* ---------------- clôture de période ----------------
    Société > « Période comptable clôturée jusqu'au » : aucune pièce datée avant (incluse)
    ne peut plus être créée, modifiée ni supprimée. */
-const KGP_LOCK_DATE_FIELDS = ['factures' => 'date', 'avoirs' => 'date', 'facturesAchat' => 'date', 'stockEntrees' => 'date',
+const KGP_LOCK_DATE_FIELDS = ['factures' => 'date', 'avoirs' => 'date', 'facturesAchat' => 'date', 'stockEntrees' => 'date', 'reglements' => 'date',
   'stockSorties' => 'date', 'treso_caisse' => 'date', 'journal' => 'date', 'immobilisations' => 'dateAcquisition', 'paieCalcul' => 'periode'];
 function kgp_piece_date(string $store, ?array $r): string {
   $f = KGP_LOCK_DATE_FIELDS[$store] ?? null;

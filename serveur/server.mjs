@@ -94,7 +94,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
   /* ---------- clôture de période ----------
      Société > « Période comptable clôturée jusqu'au » : aucune pièce datée avant (incluse)
      ne peut plus être créée, modifiée ni supprimée. */
-  const LOCK_DATE_FIELDS = { factures:"date", avoirs:"date", facturesAchat:"date", stockEntrees:"date", stockSorties:"date",
+  const LOCK_DATE_FIELDS = { factures:"date", avoirs:"date", facturesAchat:"date", stockEntrees:"date", stockSorties:"date", reglements:"date",
     treso_caisse:"date", journal:"date", immobilisations:"dateAcquisition", paieCalcul:"periode" };
   function pieceDate(store, r){
     const f = LOCK_DATE_FIELDS[store];

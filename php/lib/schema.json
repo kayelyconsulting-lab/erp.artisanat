@@ -349,7 +349,7 @@
     },
     {
      "k": "montantRegle",
-     "l": "Montant réglé (payé)",
+     "l": "Payé à la création (acompte) — les paiements suivants se saisissent dans « Règlements »",
      "t": "number",
      "def": 0
     },
@@ -368,8 +368,8 @@
     "numero",
     "date",
     "fournisseur",
-    "montantHT",
     "montantTTC",
+    "regle",
     "solde",
     "statut"
    ],
@@ -801,7 +801,7 @@
     },
     {
      "k": "montantRegle",
-     "l": "Montant réglé (encaissé)",
+     "l": "Encaissé à la création (acompte) — les encaissements suivants se saisissent dans « Règlements »",
      "t": "number",
      "def": 0
     },
@@ -820,8 +820,8 @@
     "numero",
     "date",
     "client",
-    "montantHT",
     "montantTTC",
+    "regle",
     "solde",
     "statut"
    ],
@@ -879,6 +879,88 @@
     "montantHT"
    ],
    "special": "avoirs",
+   "section": "facturation"
+  },
+  "reglements": {
+   "key": "reglements",
+   "label": "Règlements (encaissements / paiements)",
+   "special": "reglement",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date du règlement",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "type",
+     "l": "Type",
+     "t": "select",
+     "opts": [
+      "Encaissement client",
+      "Paiement fournisseur"
+     ],
+     "req": 1
+    },
+    {
+     "k": "factureVente",
+     "l": "Facture de vente réglée (encaissement)",
+     "t": "dynselect",
+     "source": "factures",
+     "labelField": "numero"
+    },
+    {
+     "k": "factureAchat",
+     "l": "Facture d'achat réglée (paiement)",
+     "t": "dynselect",
+     "source": "facturesAchat",
+     "labelField": "numero"
+    },
+    {
+     "k": "montant",
+     "l": "Montant réglé",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "modeReglement",
+     "l": "Compte de trésorerie",
+     "t": "select",
+     "opts": [
+      "Caisse",
+      "Banque"
+     ],
+     "def": "Caisse",
+     "req": 1
+    },
+    {
+     "k": "moyen",
+     "l": "Moyen de paiement",
+     "t": "select",
+     "opts": [
+      "Espèces",
+      "Chèque",
+      "Virement",
+      "Mobile Money",
+      "Carte bancaire"
+     ]
+    },
+    {
+     "k": "reference",
+     "l": "Référence (n° de chèque, de transaction...)",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "type",
+    "factureRef",
+    "tiers",
+    "montant",
+    "moyen",
+    "reference"
+   ],
    "section": "facturation"
   },
   "banques": {
@@ -1883,6 +1965,7 @@
   "treso_ecobank": "TK-ECO",
   "treso_nsia": "TK-NSIA",
   "immobilisations": "IMMO",
-  "facturesAchat": "FA-ACH"
+  "facturesAchat": "FA-ACH",
+  "reglements": "RG"
  }
 }

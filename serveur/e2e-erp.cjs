@@ -172,6 +172,39 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   assert.equal(fact2.numero, fact.numero, "numéro conservé");
   ok("écritures remplacées (" + apres + "), stock 6, numéro conservé");
 
+  console.log("Règlements multiples sur la facture");
+  const ttcFact = 24500 * 1.18 + 100;                       // 29 010, dont 8 000 d'acompte
+  const reglerVia = async (montant, champs) => {
+    await ev(id => ouvrirReglement("factures", id), fact.id);
+    await page.waitForSelector("#overlay.show");
+    if (montant === null) return Number(await page.inputValue("#f_montant"));
+    await page.fill("#f_montant", String(montant));
+    for (const [k, v] of Object.entries(champs || {})){
+      const tag = await page.$eval("#f_" + k, el => el.tagName);
+      if (tag === "SELECT") await page.selectOption("#f_" + k, v); else await page.fill("#f_" + k, v);
+    }
+    await afterToast(page, () => page.click("#overlay .modal-actions .btn.gold"));
+  };
+  assert.equal(await reglerVia(null), ttcFact - 8000, "reste dû prérempli");
+  await ev(() => closeModal());
+  await reglerVia(10000, { moyen: "Chèque", reference: "CHQ-123" });
+  assert.equal(await ev(() => getClientSolde("Client Alpha")), ttcFact - 8000 - 10000);
+  await reglerVia(999999);
+  assert.match(await lastToast(), /supérieur au reste dû/);
+  await ev(() => closeModal());
+  await reglerVia(ttcFact - 18000, { modeReglement: "Banque", moyen: "Virement" });
+  assert.equal(Math.round(await ev(() => getClientSolde("Client Alpha"))), 0);
+  const regs = await ev(async () => getAll("reglements"));
+  assert.equal(regs.length, 2);
+  assert.deepEqual(regs.map(r => r.numero), ["RG-0001", "RG-0002"]);
+  assert.equal(await ev(async n => (await getAll("journal")).filter(e => e.piece && e.piece.startsWith("RG-")).length), 4);
+  await ev(() => renderRoute("factures"));
+  assert.match(await page.textContent("#content tbody"), /Soldée/);
+  await assertEquilibre("après règlements");
+  await ev(id => removeRecord("factures", id), fact.id);
+  assert.match(await lastToast(), /supprimez-les d'abord/);
+  ok("2 règlements (chèque en caisse, virement en banque), dépassement refusé, facture soldée, suppression protégée");
+
   console.log("Avoir, devis -> facture");
   await saveViaForm("avoirs", { date: "2026-03-06", client: "Client Alpha", montantHT: 1000, factureRef: fact.numero });
   await saveViaForm("devis", { date: "2026-03-07", client: "Client Alpha", objet: "Chantier B", montantHT: 100000, statut: "Accepté" });
@@ -214,9 +247,11 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   await saveViaForm("caisses", { nom: "Caisse principale", soldeInit: 50000 });
   const treso = await ev(() => computeTresorerie());
   // caisse : 50000 initial + 8000 encaissé (facture) - 15000 ticket ; banque : -10000 (achat) - 600000*1.18 (immo)
-  assert.equal(treso.parCompte.find(c => c.label === "Caisse").value, 50000 + 8000 - 15000);
-  assert.equal(treso.parCompte.find(c => c.label === "Banques").value, -10000 - 708000);
-  ok("trésorerie : caisse " + (50000 + 8000 - 15000) + ", banques " + (-10000 - 708000));
+  // caisse : initial + acompte + règlement chèque - ticket ; banque : achat, immobilisation, règlement virement
+  const caisseAttendue = 50000 + 8000 + 10000 - 15000, banqueAttendue = -10000 - 708000 + (ttcFact - 18000);
+  assert.equal(Math.round(treso.parCompte.find(c => c.label === "Caisse").value), caisseAttendue);
+  assert.equal(Math.round(treso.parCompte.find(c => c.label === "Banques").value), Math.round(banqueAttendue));
+  ok("trésorerie : caisse " + caisseAttendue + ", banques " + Math.round(banqueAttendue));
 
   console.log("États financiers, TVA, pièce comptable, impressions");
   const ef = await ev(async () => computeEtatsFinanciers(await getAll("journal"), "2026-01-01", "2026-12-31"));
@@ -239,6 +274,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   const [popup] = await Promise.all([page.waitForEvent("popup"), ev(async () => printReleveClient((await getAll("clients"))[0].id))]);
   await popup.waitForLoadState(); const releve = await popup.content(); await popup.close();
   assert.match(releve, /Relevé de compte client/); assert.match(releve, /francs? CFA/);
+  assert.match(releve, /RG-0001/); assert.match(releve, /CHQ-123/);
   const [popF] = await Promise.all([page.waitForEvent("popup"), ev(id => printFacture("factures", id), fact.id)]);
   await popF.waitForLoadState(); assert.match(await popF.content(), /Arrêtée la présente facture à la somme de/); await popF.close();
   ok("bilan équilibré, CA " + ef.resultat.ca + ", TVA due " + Math.round(tva.due) + ", pièce déséquilibrée refusée, relevé et facture en lettres");
@@ -258,6 +294,8 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   await page.waitForTimeout(400);
   assert.equal(await ev(async n => (await getAll("journal")).filter(e => e.piece === n).length, factDevis.numero), 0);
   assert.equal((await ev(async id => (await getAll("devis")).find(d => d.id === id), devis.id)).factureNumero, undefined);
+  for (const r of await ev(async () => getAll("reglements"))) await ev(id => removeRecord("reglements", id), r.id);
+  assert.equal(await ev(async () => (await getAll("journal")).filter(e => e.piece && e.piece.startsWith("RG-")).length), 0, "écritures des règlements retirées");
   await ev(id => removeRecord("factures", id), fact.id);
   await page.waitForTimeout(400);
   assert.equal(await ev(() => getArticleStock("Ciment 50kg")), 10, "stock restitué");

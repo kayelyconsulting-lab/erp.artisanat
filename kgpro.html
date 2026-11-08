@@ -489,9 +489,9 @@ const SECTIONS = [
           {k:"montantHT",l:"Montant HT (calculé sur les lignes)",t:"number",readonly:1},
           {k:"tvaPct",l:"TVA (%)",t:"number",def:18},
           {k:"timbreQuittance",l:"Timbre de quittance (FCFA)",t:"number",def:0},
-          {k:"montantRegle",l:"Montant réglé (payé)",t:"number",def:0},
+          {k:"montantRegle",l:"Payé à la création (acompte) — les paiements suivants se saisissent dans « Règlements »",t:"number",def:0},
           {k:"modeReglement",l:"Réglé par (compte de trésorerie)",t:"select",opts:["Caisse","Banque"],def:"Caisse"} ],
-        cols:["numero","date","fournisseur","montantHT","montantTTC","solde","statut"], special:"facturesAchat" },
+        cols:["numero","date","fournisseur","montantTTC","regle","solde","statut"], special:"facturesAchat" },
   ]},
   { id:"stocks", num:"05", label:"Stocks", icon:"📦", modules:[
       { key:"articles", label:"Articles", special:"articles", fields:[
@@ -551,9 +551,9 @@ const SECTIONS = [
           {k:"montantHT",l:"Montant HT (calculé sur les lignes)",t:"number",readonly:1},
           {k:"tvaPct",l:"TVA (%)",t:"number",def:18},
           {k:"timbreQuittance",l:"Timbre de quittance (FCFA)",t:"number",def:0},
-          {k:"montantRegle",l:"Montant réglé (encaissé)",t:"number",def:0},
+          {k:"montantRegle",l:"Encaissé à la création (acompte) — les encaissements suivants se saisissent dans « Règlements »",t:"number",def:0},
           {k:"modeReglement",l:"Encaissé par (compte de trésorerie)",t:"select",opts:["Caisse","Banque"],def:"Caisse"} ],
-        cols:["numero","date","client","montantHT","montantTTC","solde","statut"], special:"factures" },
+        cols:["numero","date","client","montantTTC","regle","solde","statut"], special:"factures" },
       { key:"avoirs", label:"Avoirs", fields:[
           {k:"date",l:"Date",t:"date",req:1},
           {k:"client",l:"Client",t:"dynselect",source:"clients",labelField:"nom",req:1},
@@ -561,6 +561,16 @@ const SECTIONS = [
           {k:"motif",l:"Motif",t:"text"},
           {k:"montantHT",l:"Montant HT",t:"number",req:1},{k:"tvaPct",l:"TVA (%)",t:"number",def:18} ],
         cols:["numero","date","client","factureRef","montantHT"], special:"avoirs" },
+      { key:"reglements", label:"Règlements (encaissements / paiements)", special:"reglement", fields:[
+          {k:"date",l:"Date du règlement",t:"date",req:1},
+          {k:"type",l:"Type",t:"select",opts:["Encaissement client","Paiement fournisseur"],req:1},
+          {k:"factureVente",l:"Facture de vente réglée (encaissement)",t:"dynselect",source:"factures",labelField:"numero"},
+          {k:"factureAchat",l:"Facture d'achat réglée (paiement)",t:"dynselect",source:"facturesAchat",labelField:"numero"},
+          {k:"montant",l:"Montant réglé",t:"number",req:1},
+          {k:"modeReglement",l:"Compte de trésorerie",t:"select",opts:["Caisse","Banque"],def:"Caisse",req:1},
+          {k:"moyen",l:"Moyen de paiement",t:"select",opts:["Espèces","Chèque","Virement","Mobile Money","Carte bancaire"]},
+          {k:"reference",l:"Référence (n° de chèque, de transaction...)",t:"text"} ],
+        cols:["numero","date","type","factureRef","tiers","montant","moyen","reference"] },
       { key:"relances", label:"Relances clients", readonly:"relances" },
   ]},
   { id:"tresorerie", num:"07", label:"Trésorerie", icon:"💰", modules:[
@@ -716,7 +726,7 @@ SECTIONS.forEach(sec => sec.modules.forEach(mod => { MODULE_INDEX[mod.key] = { s
 const NUMERO_PREFIXES = {
   devis:"DV", bonsCommande:"BC", bonsLivraison:"BL", factures:"FA", avoirs:"AV",
   treso_caisse:"TK-CA", treso_sib:"TK-SIB", treso_baci:"TK-BACI", treso_boa:"TK-BOA",
-  treso_ecobank:"TK-ECO", treso_nsia:"TK-NSIA", immobilisations:"IMMO", facturesAchat:"FA-ACH",
+  treso_ecobank:"TK-ECO", treso_nsia:"TK-NSIA", immobilisations:"IMMO", facturesAchat:"FA-ACH", reglements:"RG",
 };
 async function generateNumero(storeKey){
   const prefix = NUMERO_PREFIXES[storeKey];
@@ -1250,15 +1260,30 @@ async function getAllArticleStocks(){
 }
 
 /* Montants d'une facture (vente ou achat) : HT, TVA, timbre, TTC, réglé, reste dû. */
+/* « regle » = acompte saisi sur la facture + tous les règlements enregistrés ensuite
+   (champ reglementsTotal ajouté par getFacturesAvecReglements). */
 function montantsFacture(f){
   const ht = Number(f.montantHT)||0, tva = ht*(Number(f.tvaPct)||0)/100, timbre = Number(f.timbreQuittance)||0;
-  const ttc = ht + tva + timbre, regle = Number(f.montantRegle)||0;
+  const ttc = ht + tva + timbre, regle = (Number(f.montantRegle)||0) + (Number(f.reglementsTotal)||0);
   return { ht, tva, timbre, ttc, regle, solde: ttc - regle };
+}
+
+/* Factures (vente : "factures", achat : "facturesAchat") complétées du total et du détail
+   de leurs règlements. */
+async function getFacturesAvecReglements(store){
+  const [factures, reglements] = await Promise.all([getAllSafe(store), getAllSafe("reglements")]);
+  const champ = store === "factures" ? "factureVente" : "factureAchat";
+  const parNumero = {};
+  reglements.forEach(r => { const n = r[champ]; if (n) (parNumero[n] = parNumero[n] || []).push(r); });
+  return factures.map(f => {
+    const liste = (parNumero[f.numero] || []).sort((a,b) => (a.date||"").localeCompare(b.date||""));
+    return { ...f, reglements: liste, reglementsTotal: liste.reduce((s,r) => s + (Number(r.montant)||0), 0) };
+  });
 }
 
 /* Solde client = factures TTC (timbre compris) - montants réglés - avoirs TTC. */
 async function getAllClientSoldes(){
-  const [factures, avoirs] = await Promise.all([getAllSafe("factures"), getAllSafe("avoirs")]);
+  const [factures, avoirs] = await Promise.all([getFacturesAvecReglements("factures"), getAllSafe("avoirs")]);
   const map = {};
   factures.forEach(f=>{
     if(!f.client) return;
@@ -1277,7 +1302,7 @@ async function getClientSolde(nom){ const m = await getAllClientSoldes(); return
    (achats sans facture) - décaissements de caisse au nom du fournisseur. Les entrées créées
    automatiquement par une facture d'achat ne sont pas recomptées. */
 async function getAllFournisseurSoldes(){
-  const [entrees, facturesAchat] = await Promise.all([getAllSafe("stockEntrees"), getAllSafe("facturesAchat")]);
+  const [entrees, facturesAchat] = await Promise.all([getAllSafe("stockEntrees"), getFacturesAvecReglements("facturesAchat")]);
   const map = {};
   facturesAchat.forEach(f=>{
     if(!f.fournisseur) return;
@@ -1584,7 +1609,7 @@ async function renderRoute(moduleKey){
    4) ACCUEIL / DASHBOARD
    --------------------------------------------------------- */
 async function renderAccueil(){
-  const factures = await getAllSafe("factures");
+  const factures = await getFacturesAvecReglements("factures");
   const clients = await getAllSafe("clients");
   const employes = await getAllSafe("rhEmployes");
   const articles = await getAllSafe("articles");
@@ -1609,8 +1634,12 @@ async function renderAccueil(){
     const mk = (f.date||"").slice(0,7);
     if (parMois[mk]){
       parMois[mk].ca += Number(f.montantHT)||0;
-      parMois[mk].encaisse += Number(f.montantRegle)||0;
+      parMois[mk].encaisse += Number(f.montantRegle)||0;   // acompte à la date de la facture
     }
+    (f.reglements||[]).forEach(r => {                       // règlements à leur propre date
+      const rk = (r.date||"").slice(0,7);
+      if (parMois[rk]) parMois[rk].encaisse += Number(r.montant)||0;
+    });
   });
   avoirs.forEach(a => {
     const mk = (a.date||"").slice(0,7);
@@ -1635,8 +1664,7 @@ async function renderAccueil(){
   // -- Notifications automatiques (factures en retard, stock bas) --
   const todayNotif = new Date();
   const facturesRetard30 = factures.filter(f => {
-    const ht=Number(f.montantHT)||0, tva=Number(f.tvaPct)||0, timbre=Number(f.timbreQuittance)||0, regle=Number(f.montantRegle)||0;
-    const s = (ht+ht*tva/100+timbre)-regle;
+    const s = montantsFacture(f).solde;
     if (s<=0) return false;
     const d = f.date ? new Date(f.date) : null;
     const jours = d ? Math.floor((todayNotif-d)/86400000) : 0;
@@ -1887,15 +1915,14 @@ function renderDonutChart(id, data){
    5) LISTE GENERIQUE (CRUD)
    --------------------------------------------------------- */
 async function renderModuleList(mod){
-  let rows = await getAllSafe(mod.key);
+  let rows = (mod.special === "factures" || mod.special === "facturesAchat") ? await getFacturesAvecReglements(mod.key) : await getAllSafe(mod.key);
 
   // enrichissements calcules par module
   if (mod.special === "factures"){
     rows = rows.map(r => {
-      const ht = Number(r.montantHT)||0, tvaPct = Number(r.tvaPct)||0, regle = Number(r.montantRegle)||0, timbre = Number(r.timbreQuittance)||0;
-      const tva = ht*tvaPct/100, ttc = ht+tva+timbre, solde = ttc-regle;
+      const { ttc, regle, solde } = montantsFacture(r);
       const statut = solde<=0 ? "Soldée" : (regle>0 ? "Partielle" : "Non réglée");
-      return {...r, montantTTC:ttc, solde, statut};
+      return {...r, montantTTC:ttc, regle, solde, statut};
     });
   }
   if (mod.special === "avoirs"){
@@ -1906,8 +1933,7 @@ async function renderModuleList(mod){
   }
   if (mod.special === "facturesAchat"){
     rows = rows.map(r => {
-      const ht = Number(r.montantHT)||0, tvaPct = Number(r.tvaPct)||0, regle = Number(r.montantRegle)||0, timbre = Number(r.timbreQuittance)||0;
-      const tva = ht*tvaPct/100, ttc = ht+tva+timbre, solde = ttc-regle;
+      const { ttc, regle, solde } = montantsFacture(r);
       const statut = solde<=0 ? "Soldée" : (regle>0 ? "Partielle" : "Non réglée");
       return {...r, montantTTC:ttc, solde, statut};
     });
@@ -1991,6 +2017,7 @@ async function renderModuleList(mod){
               ${mod.special==="paie" ? `<button class="btn small ghost" onclick="printBulletin(${r.id})">Bulletin</button>` : ""}
               ${mod.special==="immobilisations" ? `<button class="btn small ghost" onclick="printPlanAmortissement(${r.id})">Tableau d'amort.</button>` : ""}
               ${(mod.special==="factures"||mod.special==="facturesAchat") ? `<button class="btn small ghost" onclick="printFacture('${mod.key}', ${r.id})">Voir facture</button>` : ""}
+              ${(mod.special==="factures"||mod.special==="facturesAchat") && r.solde > 0.005 ? `<button class="btn small gold" onclick="ouvrirReglement('${mod.key}', ${r.id})">Règlement</button>` : ""}
               ${mod.special==="clients" ? `<button class="btn small ghost" onclick="printReleveClient(${r.id})">Relevé</button>` : ""}
               ${r.scanImage ? `<button class="btn small ghost" onclick="viewScanImage('${mod.key}', ${r.id})">📎 Voir le scan</button>` : ""}
               ${mod.special==="immobilisations" && !((r.anneesPostees||[]).includes(new Date().getFullYear())) && (r.planAmortissement||[]).some(p=>p.annee===new Date().getFullYear())
@@ -2007,7 +2034,7 @@ async function renderModuleList(mod){
 const COL_LABELS = {
   numero:"N°", solde:"Solde", montantTTC:"Montant TTC", statut:"Statut", ecart:"Écart",
   brutSocial:"Salaire brut", cnpsSalariale:"CNPS salariale", its:"ITS", netAPayer:"Net à payer",
-  joursTravailles:"Jours travaillés",
+  joursTravailles:"Jours travaillés", factureRef:"Facture", tiers:"Tiers", regle:"Réglé",
   stock:"Stock actuel", stockTheorique:"Stock théorique", vnc:"VNC actuelle",
 };
 function renderCell(mod, col, val){
@@ -2147,6 +2174,11 @@ async function removeRecord(storeKey, id){
   const existing = (await getAll(storeKey)).find(r=>r.id===id);
   if (!existing){ toast("Enregistrement introuvable"); return; }
   if (!(await verifierCloture(storeKey, existing))) return;
+  if (storeKey === "factures" || storeKey === "facturesAchat"){
+    const champ = storeKey === "factures" ? "factureVente" : "factureAchat";
+    const lies = (await getAllSafe("reglements")).filter(r => r[champ] && r[champ] === existing.numero);
+    if (lies.length){ toast("Cette facture a "+lies.length+" règlement(s) ("+lies.map(r=>r.numero).join(", ")+") : supprimez-les d'abord."); return; }
+  }
   const lie = anciennesPieces(storeKey, existing) ? " Les écritures comptables générées par cette pièce seront aussi supprimées." : "";
   if (!confirm("Supprimer cet enregistrement ?" + lie)) return;
   // Retire tout ce que la pièce a généré : écritures, mouvements de stock, lien devis -> facture.
@@ -2662,6 +2694,10 @@ async function saveFormInterne(storeKey, id){
     const doublon = (await getAllSafe(storeKey)).find(r => r.id !== id && r.employe === record.employe && normalizePeriode(r.periode) === periode);
     if (doublon){ toast("Un bulletin existe déjà pour "+record.employe+" sur la période "+periode); return; }
   }
+  if (mod.special === "reglement"){
+    const ok = await preparerReglement(record, existing);
+    if (!ok) return;
+  }
   if (storeKey === "stockSorties"){
     const dispo = await getArticleStock(record.article) + (existing && existing.article === record.article ? Number(existing.quantite)||0 : 0);
     if (Number(record.quantite) > dispo) toast("Attention : stock disponible de « "+record.article+" » insuffisant ("+fmtQty(dispo)+")");
@@ -2685,6 +2721,41 @@ async function saveFormInterne(storeKey, id){
 }
 
 /* ---------------------------------------------------------
+   RÈGLEMENTS MULTIPLES PAR FACTURE
+   --------------------------------------------------------- */
+/* Vérifie un règlement avant enregistrement : une seule facture, du bon type, montant
+   positif et au plus égal au reste dû. Complète le tiers et la référence de facture. */
+async function preparerReglement(record, existing){
+  const vente = record.type !== "Paiement fournisseur";
+  const numero = vente ? record.factureVente : record.factureAchat;
+  if (vente) record.factureAchat = ""; else record.factureVente = "";
+  if (!numero){ toast(vente ? "Choisissez la facture de vente encaissée" : "Choisissez la facture d'achat payée"); return false; }
+  const facture = (await getFacturesAvecReglements(vente ? "factures" : "facturesAchat")).find(f => f.numero === numero);
+  if (!facture){ toast("Facture "+numero+" introuvable"); return false; }
+  const montant = Number(record.montant)||0;
+  if (!(montant > 0)){ toast("Le montant du règlement doit être supérieur à 0"); return false; }
+  // reste dû sans compter l'ancienne version de ce règlement (cas d'une modification)
+  const dejaCompte = existing && (existing.factureVente === numero || existing.factureAchat === numero) ? Number(existing.montant)||0 : 0;
+  const reste = montantsFacture(facture).solde + dejaCompte;
+  if (montant > reste + 0.005){ toast("Montant supérieur au reste dû sur "+numero+" ("+fmt(reste)+")"); return false; }
+  record.factureRef = numero;
+  record.tiers = vente ? (facture.client||"") : (facture.fournisseur||"");
+  return true;
+}
+/* Bouton « Règlement » d'une facture : formulaire prérempli avec le reste dû. */
+async function ouvrirReglement(storeKey, id){
+  const facture = (await getFacturesAvecReglements(storeKey)).find(f => f.id === id);
+  if (!facture){ toast("Facture introuvable"); return; }
+  const vente = storeKey === "factures";
+  await openForm("reglements");
+  const set = (k, v) => { const el = document.getElementById("f_"+k); if (el) el.value = v; };
+  set("date", new Date().toISOString().slice(0,10));
+  set("type", vente ? "Encaissement client" : "Paiement fournisseur");
+  set(vente ? "factureVente" : "factureAchat", facture.numero);
+  set("montant", Math.round(montantsFacture(facture).solde * 100) / 100);
+}
+
+/* ---------------------------------------------------------
    COMPTABILISATION AUTOMATIQUE
    Chaque écriture générée porte sa pièce d'origine (« source » = module#id) :
    modifier la pièce remplace ses écritures, la supprimer les retire.
@@ -2703,6 +2774,7 @@ function anciennesPieces(storeKey, record){
     case "treso_caisse": return { pieces:[record.numero], journaux:["BQ/CA","CA-Caisse"] };
     case "paieCalcul": return { pieces:["PAIE-"+record.id], journaux:["OD-Paie"] };
     case "immobilisations": return { pieces:[record.numero], journaux:["IM-Immobilisations"] };
+    case "reglements": return { pieces:[], journaux:[] };
     default: return null;
   }
 }
@@ -2741,7 +2813,7 @@ async function comptabiliser(storeKey, record){
   const mod = MODULE_INDEX[storeKey].mod;
   const src = journalSource(storeKey, record.id);
   const special = mod.special;
-  const comptabilisable = ["factures","avoirs","facturesAchat","stockEntree","treso","paie","immobilisations"].includes(special);
+  const comptabilisable = ["factures","avoirs","facturesAchat","stockEntree","treso","paie","immobilisations","reglement"].includes(special);
   if (!comptabilisable) return "";
   await supprimerEcritures(storeKey, record, false);
 
@@ -2791,6 +2863,16 @@ async function comptabiliser(storeKey, record){
       {compte:"401", libelle:"Fournisseur "+(record.fournisseur||""), debit:0, credit:ht+tva},
     ], src);
     return "Entrée stock enregistrée — écriture comptable générée automatiquement";
+  }
+  if (special === "reglement"){
+    const montant = Number(record.montant)||0;
+    const treso = COMPTE_REGLEMENT[record.modeReglement] || "571";
+    const libelle = "Règlement "+(record.factureRef||"")+" "+(record.tiers||"")+(record.moyen ? " ("+record.moyen+")" : "");
+    const lignes = record.type === "Paiement fournisseur"
+      ? [{compte:"401", libelle, debit:montant, credit:0}, {compte:treso, libelle, debit:0, credit:montant}]
+      : [{compte:treso, libelle, debit:montant, credit:0}, {compte:"411", libelle, debit:0, credit:montant}];
+    await postJournal(record.date, journalTresorerie(record.modeReglement), record.numero, lignes, src);
+    return "Règlement "+record.numero+" de "+fmt(montant)+" enregistré sur "+(record.factureRef||"")+" — écriture comptable générée automatiquement";
   }
   if (special === "treso"){
     const montant = Number(record.montant)||0;
@@ -2997,7 +3079,7 @@ async function printPlanAmortissement(id){
 async function printFacture(storeKey, id){
   const mod = MODULE_INDEX[storeKey].mod;
   const rows = await getAllSafe(storeKey);
-  const record = rows.find(r=>r.id===id);
+  const record = (await getFacturesAvecReglements(storeKey)).find(r=>r.id===id);
   if (!record){ toast("Facture introuvable"); return; }
   const isAchat = mod.special === "facturesAchat";
   const societeRows = await getAllSafe("societe");
@@ -3010,8 +3092,11 @@ async function printFacture(storeKey, id){
   const tva = ht*tvaPct/100;
   const timbre = Number(record.timbreQuittance)||0;
   const ttc = ht+tva+timbre;
-  const regle = Number(record.montantRegle)||0;
-  const solde = ttc-regle;
+  const { regle, solde } = montantsFacture(record);
+  const detailReglements = [
+    ...(Number(record.montantRegle) > 0 ? [{ date: record.date, numero: "Acompte", moyen: record.modeReglement || "", reference: "", montant: Number(record.montantRegle) }] : []),
+    ...(record.reglements || [])
+  ].map(r => escInPlace({ ...r }));
 
   escInPlace(record); escInPlace(societe);
   const html = `
@@ -3071,6 +3156,9 @@ async function printFacture(storeKey, id){
       <tr><td>${isAchat?"Réglé":"Encaissé"}</td><td>${fmt(regle)}</td></tr>
       <tr><td><b>Solde</b></td><td><b>${fmt(solde)}</b></td></tr>
     </table>
+    ${detailReglements.length ? `<table style="margin-top:10px;"><thead><tr><th>Règlement</th><th>Date</th><th>Moyen</th><th>Référence</th><th>Montant</th></tr></thead><tbody>
+      ${detailReglements.map(r => `<tr><td>${r.numero||""}</td><td>${fmtDateFr(r.date)}</td><td>${r.moyen||""}</td><td>${r.reference||""}</td><td>${fmt(r.montant)}</td></tr>`).join("")}
+    </tbody></table>` : ""}
     <div style="margin-top:10px; font-size:12px;">Arrêtée la présente facture à la somme de : <b>${esc(montantEnLettres(ttc))}</b>${timbre>0?" (timbre inclus)":""}.</div>
     <button class="noprint" style="margin-top:14px;" onclick="window.print()">Imprimer</button>
   </body></html>`;
@@ -3506,11 +3594,10 @@ async function renderReappro(){
 
 /* ---- Nouvelle fonctionnalité : Relances clients (factures impayées) ---- */
 async function renderRelances(){
-  const factures = (await getAllSafe("factures")).map(escInPlace);
+  const factures = (await getFacturesAvecReglements("factures")).map(escInPlace);
   const today = new Date();
   const rows = factures.map(r => {
-      const ht = Number(r.montantHT)||0, tvaPct = Number(r.tvaPct)||0, regle = Number(r.montantRegle)||0, timbre = Number(r.timbreQuittance)||0;
-      const tva = ht*tvaPct/100, ttc = ht+tva+timbre, solde = ttc-regle;
+      const { ttc, solde } = montantsFacture(r);
       const dateFacture = r.date ? new Date(r.date) : null;
       const joursRetard = dateFacture ? Math.floor((today - dateFacture) / 86400000) : 0;
       return {...r, montantTTC:ttc, solde, joursRetard};
@@ -3543,13 +3630,12 @@ async function renderRelances(){
 
 /* Export PDF (impression navigateur) de la liste complète des relances clients */
 async function exportRelancesPDF(){
-  const factures = await getAllSafe("factures");
+  const factures = await getFacturesAvecReglements("factures");
   const societeRows = await getAllSafe("societe");
   const societe = societeRows[0] || {};
   const today = new Date();
   const rows = factures.map(r => {
-      const ht = Number(r.montantHT)||0, tvaPct = Number(r.tvaPct)||0, regle = Number(r.montantRegle)||0, timbre = Number(r.timbreQuittance)||0;
-      const tva = ht*tvaPct/100, ttc = ht+tva+timbre, solde = ttc-regle;
+      const { ttc, solde } = montantsFacture(r);
       const dateFacture = r.date ? new Date(r.date) : null;
       const joursRetard = dateFacture ? Math.floor((today - dateFacture) / 86400000) : 0;
       return {...r, montantTTC:ttc, solde, joursRetard};
@@ -3607,7 +3693,7 @@ async function exportRelancesPDF(){
 
 /* Génère une lettre de relance individuelle pour une facture donnée */
 async function genererLettreRelance(id){
-  const factures = await getAllSafe("factures");
+  const factures = await getFacturesAvecReglements("factures");
   const record = factures.find(r=>r.id===id);
   if (!record){ toast("Facture introuvable"); return; }
   const societeRows = await getAllSafe("societe");
@@ -3615,8 +3701,7 @@ async function genererLettreRelance(id){
   const clients = await getAllSafe("clients");
   const client = clients.find(c=>c.nom===record.client) || {};
   const ht = Number(record.montantHT)||0, tvaPct = Number(record.tvaPct)||0;
-  const timbre = Number(record.timbreQuittance)||0, regle = Number(record.montantRegle)||0;
-  const ttc = ht+ht*tvaPct/100+timbre, solde = ttc-regle;
+  const { ttc, regle, solde } = montantsFacture(record);
   const dateFacture = record.date ? new Date(record.date) : new Date();
   const joursRetard = Math.floor((new Date() - dateFacture) / 86400000);
   const today = new Date().toLocaleDateString("fr-FR");
@@ -3672,7 +3757,7 @@ async function genererLettreRelance(id){
 /* ---- Nouvelle fonctionnalité : Prévisionnel de trésorerie ---- */
 async function renderPrevisionnel(){
   const [facturesVente, facturesAchat, tresorerie] = await Promise.all([
-    getAllSafe("factures"), getAllSafe("facturesAchat"), computeTresorerie()
+    getFacturesAvecReglements("factures"), getFacturesAvecReglements("facturesAchat"), computeTresorerie()
   ]);
   // Même calcul que l'accueil : soldes initiaux + mouvements des comptes de trésorerie.
   const soldeActuel = tresorerie.total;
@@ -3965,7 +4050,7 @@ async function renderDeclarationTva(imprimer){
 /* ---------------------------------------------------------
    CLÔTURE DE PÉRIODE (contrôle côté navigateur ; le serveur l'impose aussi)
    --------------------------------------------------------- */
-const DATE_PIECE = { factures:"date", avoirs:"date", facturesAchat:"date", stockEntrees:"date", stockSorties:"date",
+const DATE_PIECE = { factures:"date", avoirs:"date", facturesAchat:"date", stockEntrees:"date", stockSorties:"date", reglements:"date",
   treso_caisse:"date", journal:"date", immobilisations:"dateAcquisition", paieCalcul:"periode" };
 function datePiece(storeKey, r){
   const f = DATE_PIECE[storeKey];
@@ -4069,12 +4154,15 @@ async function printReleveClient(id){
   const client = (await getAllSafe("clients")).find(c => c.id === id);
   if (!client){ toast("Client introuvable"); return; }
   const soc = (await getAllSafe("societe"))[0] || {};
-  const [factures, avoirs] = await Promise.all([getAllSafe("factures"), getAllSafe("avoirs")]);
+  const [factures, avoirs] = await Promise.all([getFacturesAvecReglements("factures"), getAllSafe("avoirs")]);
   const mouvements = [];
   factures.filter(f => f.client === client.nom).forEach(f => {
     const m = montantsFacture(f);
     mouvements.push({ date:f.date, libelle:"Facture "+(f.numero||""), debit:m.ttc, credit:0 });
-    if (m.regle > 0) mouvements.push({ date:f.date, libelle:"Règlement facture "+(f.numero||"")+" ("+(f.modeReglement||"Caisse")+")", debit:0, credit:m.regle });
+    const acompte = Number(f.montantRegle)||0;
+    if (acompte > 0) mouvements.push({ date:f.date, libelle:"Acompte facture "+(f.numero||"")+" ("+(f.modeReglement||"Caisse")+")", debit:0, credit:acompte });
+    (f.reglements||[]).forEach(r => mouvements.push({ date:r.date,
+      libelle:"Règlement "+(r.numero||"")+" — facture "+(f.numero||"")+(r.moyen ? " ("+r.moyen+(r.reference ? " "+r.reference : "")+")" : ""), debit:0, credit:Number(r.montant)||0 }));
   });
   avoirs.filter(a => a.client === client.nom).forEach(a => {
     const ht = Number(a.montantHT)||0, ttc = ht + ht*(Number(a.tvaPct)||0)/100;
