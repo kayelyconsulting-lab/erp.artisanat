@@ -3,6 +3,7 @@
 // Authentification, droits par rôle et vérification de chaque donnée, stockage SQLite.
 declare(strict_types=1);
 require __DIR__ . '/validation.php';
+require __DIR__ . '/montants.php';
 
 // Jamais de détail technique dans les réponses (chemins, traces) : tout part dans le
 // journal du serveur, sans les arguments des fonctions (codes secrets, fiches...).
@@ -334,12 +335,12 @@ function kgp_list(array $user, string $store): array {
   return kgp_all($mod['key']);
 }
 
-function kgp_save(array $user, string $store, $input, string $sessionHash): int {
+function kgp_save(array $user, string $store, $input, string $sessionHash, ?array &$retour = null): int {
   $mod = kgp_module($store);
   kgp_assert_can_write($user, $mod, $input);
   if (!kgp_is_object($input)) throw new ValidationError(['Enregistrement invalide']);
 
-  return kgp_transaction(function () use ($user, $mod, $input, $sessionHash){
+  return kgp_transaction(function () use ($user, $mod, $input, $sessionHash, &$retour){
     $id = $input['id'] ?? null;
     if (!empty($mod['single'])) $id = 1;
     if ($id !== null && !(is_int($id) && $id > 0 && $id < 2 ** 31)) throw new ValidationError(['Identifiant invalide']);
@@ -381,6 +382,12 @@ function kgp_save(array $user, string $store, $input, string $sessionHash): int 
         throw new ValidationError(['Code secret : champ obligatoire']);
       }
       if (kgp_active_admins_except($id, $record + ['id' => $id]) === 0) throw new ValidationError(['Il doit rester au moins un administrateur actif.']);
+    }
+
+    if (in_array($mod['key'], KGP_MODULES_MONTANTS, true)){
+      $prixCorriges = kgp_appliquer_montants($mod['key'], $record, $existing, $id, kgp_is_gerant_or_admin($user));
+      // Montants retenus renvoyés au navigateur : la comptabilisation part de ces valeurs.
+      $retour = ['enregistrement' => $record + ['id' => $id], 'prixCorriges' => $prixCorriges];
     }
 
     kgp_assert_open($mod['key'], $existing);
@@ -615,7 +622,7 @@ function kgp_handle_api(string $p): void {
     if (preg_match('#^/api/data/([A-Za-z_]+)(?:/(\d+))?$#', $p, $m)){
       $store = $m[1]; $idStr = $m[2] ?? '';
       if ($method === 'GET' && $idStr === ''){ kgp_send(kgp_list($user, $store)); return; }
-      if ($method === 'PUT' && $idStr === ''){ kgp_send(['id' => kgp_save($user, $store, kgp_body(), $session['hash'])]); return; }
+      if ($method === 'PUT' && $idStr === ''){ $retour = []; $id = kgp_save($user, $store, kgp_body(), $session['hash'], $retour); kgp_send(['id' => $id] + ($retour ?? [])); return; }
       if ($method === 'DELETE' && $idStr !== ''){ kgp_send(['ok' => kgp_remove($user, $store, (int)$idStr)]); return; }
     }
     throw new HttpError(404, 'Route inconnue');

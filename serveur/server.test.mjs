@@ -179,6 +179,79 @@ test("clôture de période", async () => {
   assert.equal((await admin("PUT", "/api/data/societe", { ...soc, raison: "Kayely SARL", dateCloture: "" })).status, 200);
 });
 
+test("prix et totaux calculés par le serveur", async () => {
+  assert.equal((await admin("PUT", "/api/data/articles", { designation: "Sac cuir", prixVente: 25000, tva: 18 })).status, 200);
+  assert.equal((await admin("PUT", "/api/data/services", { designation: "Réparation", prix: 8000, tva: 18 })).status, 200);
+  assert.equal((await admin("PUT", "/api/data/utilisateurs", { nom: "Caisse prix", login: "caisse-prix", motDePasse: "Initial-2026", role: "Caissier(e)", statut: "Actif", dateExpiration: "" })).status, 200);
+  const caisse = client();
+  assert.equal((await caisse("POST", "/api/login", { login: "caisse-prix", password: "Initial-2026" })).status, 200);
+  assert.equal((await caisse("POST", "/api/password", { password: "Caisse-Prix-2026" })).status, 200);
+
+  // Caissier : prix du catalogue imposé, lignes hors catalogue laissées telles quelles, TVA et TTC recalculés
+  const f = { client: "Cabinet ABC", date: "2026-02-01", numero: "FA-0101", tvaPct: 18, timbreQuittance: 100,
+    montantTVA: 1, montantTTC: 1, montantRegle: 0,
+    lignes: [{ designation: "Sac cuir", quantite: 2, prixUnitaire: 1 }, { designation: "Réparation", quantite: 1, prixUnitaire: 8000 },
+             { designation: "Article libre", quantite: 1, prixUnitaire: 500 }] };
+  const r = await caisse("PUT", "/api/data/factures", f);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual(r.data.prixCorriges, [{ designation: "Sac cuir", saisi: 1, catalogue: 25000 }]);
+  const e = r.data.enregistrement;
+  assert.equal(e.lignes[0].prixUnitaire, 25000);
+  assert.equal(e.montantHT, 58500);
+  assert.equal(e.montantTVA, 10530);
+  assert.equal(e.montantTTC, 69130);
+  const lu = (await admin("GET", "/api/data/factures")).data.find(x => x.id === r.data.id);
+  assert.equal(lu.montantHT, 58500);
+  assert.equal(lu.montantTTC, 69130);
+
+  // Gérant / administrateur : prix négocié accepté
+  const g = await admin("PUT", "/api/data/factures", { ...f, numero: "FA-0102", lignes: [{ designation: "Sac cuir", quantite: 1, prixUnitaire: 20000 }] });
+  assert.equal(g.status, 200);
+  assert.deepEqual(g.data.prixCorriges, []);
+  assert.equal(g.data.enregistrement.montantHT, 20000);
+  // ce prix accordé reste valable si le Caissier modifie ensuite la facture
+  const g2 = await caisse("PUT", "/api/data/factures", { ...g.data.enregistrement, timbreQuittance: 0 });
+  assert.equal(g2.status, 200);
+  assert.equal(g2.data.enregistrement.montantHT, 20000);
+  assert.equal(g2.data.enregistrement.montantTTC, 23600);
+
+  // acompte supérieur au TTC : refusé
+  const trop = await caisse("PUT", "/api/data/factures", { ...f, numero: "FA-0103", montantRegle: 999999 });
+  assert.equal(trop.status, 422);
+  assert.match(trop.data.error, /supérieur au total TTC/);
+
+  // règlements : facture existante, du bon type, montant au plus égal au reste dû
+  const reg = { date: "2026-02-02", type: "Encaissement client", factureVente: "FA-0102", factureAchat: "", montant: 20000, modeReglement: "Caisse",
+    factureRef: "pirate", tiers: "pirate" };
+  const r1 = await caisse("PUT", "/api/data/reglements", reg);
+  assert.equal(r1.status, 200, JSON.stringify(r1.data));
+  assert.equal(r1.data.enregistrement.factureRef, "FA-0102");
+  assert.equal(r1.data.enregistrement.tiers, "Cabinet ABC");
+  assert.equal(r1.data.enregistrement.factureAchat, "");
+  const r2 = await caisse("PUT", "/api/data/reglements", { ...reg, montant: 3601 });
+  assert.equal(r2.status, 422);
+  assert.match(r2.data.error, /reste dû/);
+  assert.equal((await caisse("PUT", "/api/data/reglements", { ...reg, montant: 3600 })).status, 200);
+  // modification d'un règlement : son ancien montant n'est pas compté deux fois
+  assert.equal((await caisse("PUT", "/api/data/reglements", { ...reg, id: r1.data.id, montant: 20000 })).status, 200);
+  assert.equal((await caisse("PUT", "/api/data/reglements", { ...reg, id: r1.data.id, montant: 20001 })).status, 422);
+  assert.equal((await caisse("PUT", "/api/data/reglements", { ...reg, montant: 0.5 })).status, 422);
+  assert.equal((await caisse("PUT", "/api/data/reglements", { ...reg, type: "Paiement fournisseur", factureAchat: "" })).status, 422);
+  // facture réglée : son total ne peut plus descendre sous les montants encaissés
+  const baisse = await admin("PUT", "/api/data/factures", { ...g.data.enregistrement, lignes: [{ designation: "Sac cuir", quantite: 1, prixUnitaire: 100 }] });
+  assert.equal(baisse.status, 422);
+  assert.match(baisse.data.error, /déjà réglés/);
+
+  // avoirs : TTC calculé, plafonné au total de la facture liée
+  const av = await caisse("PUT", "/api/data/avoirs", { date: "2026-02-03", client: "Cabinet ABC", factureRef: "FA-0101", montantHT: 10000, tvaPct: 18 });
+  assert.equal(av.status, 200, JSON.stringify(av.data));
+  assert.equal(av.data.enregistrement.montantTTC, 11800);
+  const av2 = await caisse("PUT", "/api/data/avoirs", { date: "2026-02-03", client: "Cabinet ABC", factureRef: "FA-0101", montantHT: 50000, tvaPct: 18 });
+  assert.equal(av2.status, 422);
+  assert.match(av2.data.error, /supérieurs au total TTC/);
+  assert.equal((await caisse("PUT", "/api/data/avoirs", { date: "2026-02-03", client: "Client caisse", factureRef: "FA-0101", montantHT: 10, tvaPct: 18 })).status, 422);
+});
+
 test("envoi groupé (lot)", async () => {
   const r = await admin("PUT", "/api/data/planComptable/lot", [
     { classe: "6", compte: "6999", intitule: "Test lot A", sens: "Débit" },

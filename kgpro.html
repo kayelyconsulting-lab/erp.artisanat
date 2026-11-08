@@ -1539,6 +1539,22 @@ function putRecordLocal(store, record){
     r.onerror = reject;
   });
 }
+/* Factures, avoirs et règlements : en mode serveur, le serveur recalcule les montants (prix du
+   catalogue, TVA, TTC, reste dû). Les valeurs retenues sont reprises dans « record » pour que la
+   comptabilisation parte des mêmes chiffres. Retourne { id, prixCorriges }. */
+const MODULES_MONTANTS_SERVEUR = new Set(["factures","facturesAchat","avoirs","reglements"]);
+async function enregistrerPiece(store, record){
+  if (!KGP_SERVER || !MODULES_MONTANTS_SERVEUR.has(store)) return { id: await putRecord(store, record), prixCorriges: [] };
+  const r = await kgpApi("PUT", "/api/data/" + encodeURIComponent(store), record);
+  notifyDataChanged();
+  if (r.enregistrement && typeof r.enregistrement === "object") Object.assign(record, r.enregistrement);
+  return { id: r.id, prixCorriges: Array.isArray(r.prixCorriges) ? r.prixCorriges : [] };
+}
+function messagePrixCorriges(liste){
+  if (!liste.length) return "";
+  return " — prix du catalogue appliqué : " + liste.map(c => c.designation + " " + fmt(c.catalogue)).join(", ");
+}
+
 /* Enregistre plusieurs fiches. En mode serveur : une seule requête (au lieu d'une par fiche). */
 async function putRecords(store, records){
   if (!records.length) return [];
@@ -2817,12 +2833,12 @@ async function saveFormInterne(storeKey, id){
     record.numero = await generateNumero(storeKey);
   }
 
-  const newId = await putRecord(storeKey, record);
+  const { id: newId, prixCorriges } = await enregistrerPiece(storeKey, record);
   if (!record.id) record.id = newId;
 
   // -------- Comptabilisation automatique (remplace les écritures précédentes de la pièce) --------
   const message = await comptabiliser(storeKey, record);
-  toast(message || (id ? "Modifications enregistrées" : (record.numero ? "Fiche "+record.numero+" créée" : "Fiche créée")));
+  toast((message || (id ? "Modifications enregistrées" : (record.numero ? "Fiche "+record.numero+" créée" : "Fiche créée"))) + messagePrixCorriges(prixCorriges));
 
   closeModal();
   renderModuleList(mod);
@@ -3406,7 +3422,7 @@ async function genererFactureDepuis(storeKey, id){
     montantHT: ht, tvaPct: 18, timbreQuittance: 0, montantRegle: 0, modeReglement: "Caisse",
     devisRef: source.numero || ""
   };
-  facture.id = await putRecord("factures", facture);
+  facture.id = (await enregistrerPiece("factures", facture)).id;
   await comptabiliser("factures", facture);
   source.factureNumero = numero;
   await putRecord(storeKey, source);

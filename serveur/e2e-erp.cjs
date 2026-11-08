@@ -420,6 +420,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
 
   console.log("Rôle Comptable : modifier une facture remplace ses écritures");
   await saveViaForm("utilisateurs", { nom: "Compta", login: "compta", motDePasse: "Compta-Init-2026", role: "Comptable", statut: "Actif" });
+  await saveViaForm("utilisateurs", { nom: "Caisse", login: "caisse-e2e", motDePasse: "Caisse-Init-2026", role: "Caissier(e)", statut: "Actif" });
   const p2 = await ctx.newPage(); p2.on("pageerror", e => errors.push("compta: " + e.message)); p2.on("dialog", d => d.accept()); noterErreurs(p2);
   await p2.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
   await ev(() => logout());
@@ -444,6 +445,37 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   const st3 = await p2.evaluate(async () => { const j = await getAll("journal"); return Math.abs(j.reduce((s,e)=>s+e.debit-e.credit,0)); });
   assert.ok(st3 < 0.01, "journal équilibré");
   ok("facture modifiée par le Comptable : " + n3 + " -> " + n3b + " écritures, journal équilibré");
+
+  console.log("Rôle Caissier : prix du catalogue imposé par le serveur");
+  await p2.evaluate(() => logout()); await p2.close();
+  const p4 = await ctx.newPage(); p4.on("pageerror", e => errors.push("caisse: " + e.message)); p4.on("dialog", d => d.accept()); noterErreurs(p4);
+  await p4.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
+  await ctx.clearCookies();
+  await p4.goto(R + SOCIETE_PATH + "/");
+  await p4.fill("#loginUser", "caisse-e2e"); await p4.fill("#loginPass", "Caisse-Init-2026"); await p4.click("#loginCard button");
+  await p4.waitForSelector("#setupCard", { state: "visible" });
+  await p4.fill("#setupPass", "Caisse-Perso-2026"); await p4.fill("#setupPass2", "Caisse-Perso-2026"); await p4.click("#setupCard button");
+  await p4.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: REMOTE ? 600000 : 60000 });
+  await hookToasts(p4);
+  await p4.evaluate(() => openForm("factures")); await p4.waitForSelector("#overlay.show");
+  await p4.fill("#f_date", "2026-03-21"); await p4.selectOption("#f_client", "Client Alpha");
+  await p4.selectOption("#lignesEditor select", "Pose");
+  await p4.fill("#lignesEditor input[oninput*='prixUnitaire']", "1");          // prix baissé à la main
+  await p4.fill("#f_tvaPct", "18"); await p4.fill("#f_montantRegle", "0");
+  await afterToast(p4, () => p4.click("#overlay .modal-actions .btn.gold"));
+  const msg4 = await p4.evaluate(() => window.__toasts[window.__toasts.length - 1]);
+  const f4 = await p4.evaluate(async () => (await getAll("factures")).slice(-1)[0]);
+  assert.equal(f4.lignes[0].prixUnitaire, 20000, "prix du catalogue appliqué");
+  assert.equal(f4.montantTTC, 23600, "TTC calculé par le serveur");
+  assert.match(msg4, /prix du catalogue appliqué/);
+  const vente4 = await p4.evaluate(async n => (await getAll("journal")).filter(e => e.piece === n && /^7/.test(String(e.compte))).reduce((s, e) => s + e.credit, 0), f4.numero);
+  assert.equal(vente4, 20000, "écriture de vente au prix du catalogue");
+  // le serveur refuse un encaissement supérieur au reste dû, même envoyé directement
+  const refus4 = await p4.evaluate(async n => (await fetch("api/data/reglements", { method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date: "2026-03-21", type: "Encaissement client", factureVente: n, montant: 999999, modeReglement: "Caisse" }) })).status, f4.numero);
+  assert.equal(refus4, 422, "règlement au-delà du reste dû refusé");
+  ok("prix saisi 1 → 20 000 (catalogue), TTC 23 600, vente comptabilisée 20 000, règlement excessif refusé");
+  await p4.evaluate(() => logout()); await p4.close();
 
   console.log("Connexion pendant une vérification d'ouverture lente");
   const p3 = await ctx.newPage(); p3.on("pageerror", e => errors.push("lent: " + e.message));

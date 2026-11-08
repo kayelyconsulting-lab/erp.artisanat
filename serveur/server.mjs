@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadSchema } from "./schema.mjs";
 import { validateRecord, ValidationError } from "./validation.mjs";
+import { appliquerMontants, MODULES_MONTANTS } from "./montants.mjs";
 import { openDatabase } from "./db.mjs";
 import {
   hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, LEGACY_DEFAULT_PASSWORDS,
@@ -165,7 +166,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
       .filter(u => u && u.role === ADMIN && isActive(u)).length;
   }
 
-  function put(user, store, input, sessionHash = ""){
+  function put(user, store, input, sessionHash = "", retour = null){
     const mod = moduleOr404(store);
     assertCanWrite(user, mod, input);
     if (input === null || typeof input !== "object" || Array.isArray(input)) throw new ValidationError(["Enregistrement invalide"]);
@@ -207,6 +208,12 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
           throw new ValidationError(["Code secret : champ obligatoire"]);
         }
         if (activeAdminsExcept(id, { ...record, id }) === 0) throw new ValidationError(["Il doit rester au moins un administrateur actif."]);
+      }
+
+      if (MODULES_MONTANTS.has(mod.key)){
+        const prixCorriges = appliquerMontants(mod.key, record, { all: s => db.all(s), existing, id, privilegie: isGerantOrAdmin(user) });
+        // Montants retenus renvoyés au navigateur : la comptabilisation part de ces valeurs.
+        if (retour) Object.assign(retour, { enregistrement: { ...record, id }, prixCorriges });
       }
 
       assertOpen(mod.key, existing);
@@ -424,7 +431,10 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
     if (dm){
       const [, store, idStr] = dm;
       if (m === "GET" && !idStr) return send(res, 200, list(user, store));
-      if (m === "PUT" && !idStr) return send(res, 200, { id: put(user, store, await readBody(req), session.hash) });
+      if (m === "PUT" && !idStr){
+        const retour = {}, id = put(user, store, await readBody(req), session.hash, retour);
+        return send(res, 200, { id, ...retour });
+      }
       if (m === "DELETE" && idStr) return send(res, 200, { ok: remove(user, store, Number(idStr)) });
     }
     throw new HttpError(404, "Route inconnue");
