@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { loadSchema } from "./schema.mjs";
 import { validateRecord, ValidationError } from "./validation.mjs";
 import { appliquerMontants, MODULES_MONTANTS } from "./montants.mjs";
-import { comptabiliser, supprimerComptabilisation, blocageSuppression, MODULES_COMPTA } from "./comptabilisation.mjs";
+import { comptabiliser, supprimerComptabilisation, blocageSuppression, posterDotation, MODULES_COMPTA } from "./comptabilisation.mjs";
 import { openDatabase } from "./db.mjs";
 import {
   hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, LEGACY_DEFAULT_PASSWORDS,
@@ -450,6 +450,17 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
         catch (e){ if (e instanceof ValidationError) e.message = `Fiche ${i + 1} : ${e.message}`; throw e; }
       });
       return send(res, 200, { ids });
+    }
+    // Dotation annuelle d'amortissement d'une immobilisation : comptabilisée par le serveur.
+    const dot = /^\/api\/immobilisations\/(\d+)\/dotation\/(\d{4})$/.exec(p);
+    if (dot && m === "POST"){
+      assertCanWrite(user, moduleOr404("immobilisations"), {});
+      const message = db.transaction(() => {
+        const rec = db.get("immobilisations", Number(dot[1]));
+        if (rec) assertOpen("immobilisations", rec);
+        return posterDotation(db, Number(dot[1]), Number(dot[2]), user.id, ValidationError);
+      });
+      return send(res, 200, { message });
     }
     const dm = /^\/api\/data\/([A-Za-z_]+)(?:\/(\d+))?$/.exec(p);
     if (dm){

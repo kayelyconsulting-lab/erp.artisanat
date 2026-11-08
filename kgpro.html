@@ -2977,7 +2977,7 @@ function lignesReglement(record, achat, comptes){
 /* Génère (ou régénère) les écritures et mouvements liés à une pièce. Renvoie le message à afficher. */
 /* Modules dont la comptabilisation (écritures + stock) est faite par le serveur en mode serveur :
    le navigateur ne la refait pas, pour que le grand livre ne puisse pas être désynchronisé. */
-const MODULES_COMPTA_SERVEUR = new Set(["factures","avoirs","facturesAchat","stockEntrees","treso_caisse","reglements","virementsInternes"]);
+const MODULES_COMPTA_SERVEUR = new Set(["factures","avoirs","facturesAchat","stockEntrees","treso_caisse","reglements","virementsInternes","paieCalcul","immobilisations"]);
 function messageComptaServeur(storeKey, record){
   const n = record.numero || "";
   switch (storeKey){
@@ -2988,6 +2988,8 @@ function messageComptaServeur(storeKey, record){
     case "treso_caisse": return "Ticket "+n+" enregistré — écriture comptable générée automatiquement";
     case "reglements": return "Règlement "+n+" enregistré sur "+(record.factureRef||"")+" — écriture comptable générée automatiquement";
     case "virementsInternes": return "Virement "+n+" enregistré — écriture comptable générée automatiquement";
+    case "paieCalcul": return "Bulletin de "+(record.employe||"")+" enregistré — charges de personnel comptabilisées automatiquement";
+    case "immobilisations": return "Immobilisation "+n+" enregistrée — acquisition comptabilisée et tableau d'amortissement généré automatiquement";
   }
   return "";
 }
@@ -3201,6 +3203,16 @@ function getVNCTheorique(rec){
 
 /* Comptabilise la dotation aux amortissements d'une année donnée (681 / 28x) */
 async function postAmortissementAnnee(storeKey, id, annee){
+  // En mode serveur, la dotation est comptabilisée par le serveur (grand livre fiable).
+  if (KGP_SERVER && storeKey === "immobilisations"){
+    try{
+      const r = await kgpApi("POST", "/api/immobilisations/"+Number(id)+"/dotation/"+Number(annee), {});
+      notifyDataChanged();
+      toast(r.message || "Dotation "+annee+" comptabilisée automatiquement");
+    }catch(e){ toast(e.message || "Dotation impossible"); }
+    renderModuleList(MODULE_INDEX[storeKey].mod);
+    return;
+  }
   const rows = await getAll(storeKey);
   const rec = rows.find(r=>r.id===id);
   if (!rec){ toast("Immobilisation introuvable"); return; }

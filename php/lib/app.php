@@ -643,6 +643,16 @@ function kgp_handle_api(string $p): void {
       kgp_send(['ids' => $ids]);
       return;
     }
+    if ($method === 'POST' && preg_match('#^/api/immobilisations/(\d+)/dotation/(\d{4})$#', $p, $m)){
+      kgp_assert_can_write($user, kgp_module('immobilisations'), []);
+      $message = kgp_transaction(function () use ($m, $user){
+        $rec = kgp_get('immobilisations', (int)$m[1]);
+        if ($rec) kgp_assert_open('immobilisations', $rec);
+        return kgp_poster_dotation((int)$m[1], (int)$m[2], $user['id']);
+      });
+      kgp_send(['message' => $message]);
+      return;
+    }
     if (preg_match('#^/api/data/([A-Za-z_]+)(?:/(\d+))?$#', $p, $m)){
       $store = $m[1]; $idStr = $m[2] ?? '';
       if ($method === 'GET' && $idStr === ''){ kgp_send(kgp_list($user, $store)); return; }

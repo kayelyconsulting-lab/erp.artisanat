@@ -144,6 +144,49 @@ test("comptabilisation générée par le serveur (journal + stock)", async () =>
   assert.equal((await admin("GET", "/api/data/stockSorties")).data.filter(s => s.factureRef === "FA-9001" && s.auto).length, 0, "stock retiré");
 });
 
+test("comptabilisation paie et immobilisations (serveur)", async () => {
+  const srcEntries = async src => (await admin("GET", "/api/data/journal")).data.filter(e => e.source === src);
+  const equilibre = l => Math.abs(l.reduce((s, e) => s + (e.debit || 0) - (e.credit || 0), 0)) < 0.001;
+
+  // Paie : bulletin -> charges de personnel calculées et comptabilisées par le serveur
+  assert.equal((await admin("PUT", "/api/data/rhEmployes", { nom: "KOUAME Jean", salaireBase: 300000, situationFamiliale: "Célibataire", nombreEnfants: 0 })).status, 200);
+  const b = await admin("PUT", "/api/data/paieCalcul", { employe: "KOUAME Jean", periode: "03/2026", salaireCategoriel: 300000, situationFamiliale: "Célibataire", nombreEnfants: 0 });
+  assert.equal(b.status, 200, JSON.stringify(b.data));
+  const ep = await srcEntries("paieCalcul#" + b.data.id);
+  assert.equal(ep.length, 8, "8 lignes de paie"); assert.ok(equilibre(ep), "bulletin équilibré");
+  assert.equal(ep.find(e => e.compte === "661").debit, 300000, "salaire brut");
+  assert.equal(ep.find(e => e.compte === "447").credit, 35031, "ITS (barème officiel)");
+  assert.equal(ep.find(e => e.compte === "422").credit, 245569, "net à payer");
+
+  // Immobilisation : acquisition comptabilisée + plan d'amortissement + dotation annuelle
+  const im = await admin("PUT", "/api/data/immobilisations", { numero: "IMMO-9001", designation: "Camion", categorie: "Matériel de transport",
+    compteImmo: "245", compteAmort: "284", dateAcquisition: "2026-01-15", valeurOrigineHT: 1200000, tvaPct: 18, dureeAns: 5,
+    valeurResiduelle: 0, modePaiement: "Fournisseur (à crédit)", compteContrepartie: "481" });
+  assert.equal(im.status, 200, JSON.stringify(im.data));
+  const ea = await srcEntries("immobilisations#" + im.data.id);
+  assert.equal(ea.length, 3); assert.ok(equilibre(ea));
+  assert.equal(ea.find(e => e.compte === "245").debit, 1200000, "valeur immobilisée");
+  assert.equal(ea.find(e => e.compte === "4451").debit, 216000, "TVA récupérable");
+  const immo = (await admin("GET", "/api/data/immobilisations")).data.find(x => x.id === im.data.id);
+  assert.equal(immo.planAmortissement.length, 5, "plan d'amortissement sur 5 ans");
+  assert.equal(immo.planAmortissement[0].dotation, 240000, "dotation annuelle");
+
+  // Dotation d'une année : comptabilisée par le serveur, idempotente
+  const d1 = await admin("POST", "/api/immobilisations/" + im.data.id + "/dotation/2026", {});
+  assert.equal(d1.status, 200, JSON.stringify(d1.data));
+  const ed = await srcEntries("immobilisations#" + im.data.id + "#dotation-2026");
+  assert.equal(ed.length, 2); assert.ok(equilibre(ed));
+  assert.equal(ed.find(e => e.compte === "681").debit, 240000, "dotation aux amortissements");
+  const d2 = await admin("POST", "/api/immobilisations/" + im.data.id + "/dotation/2026", {});
+  assert.match(d2.data.message, /déjà comptabilisée/);
+  assert.equal((await srcEntries("immobilisations#" + im.data.id + "#dotation-2026")).length, 2, "pas de doublon");
+
+  // Suppression de l'immobilisation : acquisition ET dotations retirées
+  assert.equal((await admin("DELETE", "/api/data/immobilisations/" + im.data.id)).status, 200);
+  assert.equal((await srcEntries("immobilisations#" + im.data.id)).length, 0);
+  assert.equal((await srcEntries("immobilisations#" + im.data.id + "#dotation-2026")).length, 0);
+});
+
 test("droits par rôle", async () => {
   const mk = (login, role) => admin("PUT", "/api/data/utilisateurs", { nom: login, login, motDePasse: "Initial-2026", role, statut: "Actif", dateExpiration: "" });
   assert.equal((await mk("caisse", "Caissier(e)")).status, 200);

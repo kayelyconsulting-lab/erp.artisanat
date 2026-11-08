@@ -254,6 +254,18 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   const nPaie = await ev(async () => (await getAll("journal")).filter(e => e.journalType === "OD-Paie").length);
   await saveViaForm("paieCalcul", { primeRendement: 10000 }, bulletin.id);
   assert.equal(await ev(async () => (await getAll("journal")).filter(e => e.journalType === "OD-Paie").length), nPaie, "bulletin modifié sans doublon");
+  // Contre-vérification : les écritures de paie du SERVEUR == le calcul du NAVIGATEUR (computePaie).
+  const croise = await ev(async () => {
+    const b = (await getAll("paieCalcul")).find(x => x.periode === "03/2026");
+    const p = computePaie(b, await getPaieParams(), await getBareme());
+    const ecr = (await getAll("journal")).filter(e => e.source === "paieCalcul#" + b.id);
+    const credit = c => (ecr.find(e => e.compte === c && e.credit > 0) || {}).credit || 0;
+    return { brut: [(ecr.find(e => e.compte === "661") || {}).debit || 0, p.brutSocial],
+      net: [Math.round(credit("422")), Math.round(p.netAPayer)], its: [Math.round(credit("447")), Math.round(p.its)] };
+  });
+  assert.deepEqual(croise.brut, [croise.brut[1], croise.brut[1]], "paie : brut serveur = navigateur");
+  assert.deepEqual(croise.net, [croise.net[1], croise.net[1]], "paie : net serveur = navigateur");
+  assert.deepEqual(croise.its, [croise.its[1], croise.its[1]], "paie : ITS serveur = navigateur");
   await saveViaForm("immobilisations", { designation: "Ordinateur", categorie: "Matériel informatique", dateAcquisition: "2026-01-15", valeurOrigineHT: 600000, dureeAns: 3, modePaiement: "Banque", compteContrepartie: "521" });
   const immo = await ev(async () => (await getAll("immobilisations"))[0]);
   await ev(id => postAmortissementAnnee("immobilisations", id, 2026), immo.id);
