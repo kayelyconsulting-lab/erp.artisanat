@@ -463,6 +463,7 @@ const SECTIONS = [
           {k:"dateExpiration",l:"Accès valable jusqu'au (laisser vide = illimité)",t:"date"} ],
         cols:["nom","prenom","login","role","statut","dateExpiration"] },
       { key:"journalActivite", adminOnly:true, label:"Journal d'activité", readonly:"audit" },
+      { key:"paiementConfig", adminOnly:true, label:"Paiement en ligne (CinetPay)", readonly:"paiementConfig" },
       { key:"taxes", adminOnly:true, label:"Taxes", fields:[
           {k:"libelle",l:"Libellé",t:"text",req:1},
           {k:"type",l:"Type",t:"select",opts:["TVA","IS","CNPS","Autre"]},
@@ -1697,6 +1698,7 @@ async function renderRoute(moduleKey){
   if (entry.mod.readonly === "soldesTreso") return renderSoldesTresorerie();
   if (entry.mod.readonly === "liasse") return renderLiasse();
   if (entry.mod.readonly === "audit") return renderJournalActivite();
+  if (entry.mod.readonly === "paiementConfig") return renderPaiementConfig();
   if (entry.mod.readonly === "rapprochementAuto") return renderRapprochementAuto();
   if (entry.mod.single) return renderSingleForm(entry.mod);
   return renderModuleList(entry.mod);
@@ -2163,6 +2165,7 @@ async function renderModuleList(mod){
               ${mod.special==="immobilisations" ? `<button class="btn small ghost" data-act="printPlanAmortissement" data-a="${esc(JSON.stringify([r.id]))}">Tableau d'amort.</button>` : ""}
               ${(mod.special==="factures"||mod.special==="facturesAchat") ? `<button class="btn small ghost" data-act="printFacture" data-a="${esc(JSON.stringify([mod.key, r.id]))}">Voir facture</button>` : ""}
               ${(mod.special==="factures"||mod.special==="facturesAchat") && r.solde > 0.005 ? `<button class="btn small gold" data-act="ouvrirReglement" data-a="${esc(JSON.stringify([mod.key, r.id]))}">Règlement</button>` : ""}
+              ${mod.special==="factures" && KGP_SERVER && r.solde > 0.005 ? `<button class="btn small" data-act="payerEnLigne" data-a="${esc(JSON.stringify([r.id]))}">Payer en ligne</button>` : ""}
               ${mod.special==="clients" ? `<button class="btn small ghost" data-act="printReleveClient" data-a="${esc(JSON.stringify([r.id]))}">Relevé</button>` : ""}
               ${r.scanImage ? `<button class="btn small ghost" data-act="viewScanImage" data-a="${esc(JSON.stringify([mod.key, r.id]))}">📎 Voir le scan</button>` : ""}
               ${mod.special==="immobilisations" && !((r.anneesPostees||[]).includes(new Date().getFullYear())) && (r.planAmortissement||[]).some(p=>p.annee===new Date().getFullYear())
@@ -4661,6 +4664,56 @@ async function renderJournalActivite(){
       <td>${/echec|bloque/.test(l.action) ? `<span class="badge danger">${esc(LIBELLES_ACTIONS[l.action] || l.action)}</span>` : esc(LIBELLES_ACTIONS[l.action] || l.action)}</td>
       <td>${esc(modules[l.module] || l.module || "")}</td><td>${l.fiche ?? ""}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">Aucune action</td></tr>`}
     </tbody></table></div>`;
+}
+
+/* ---------------------------------------------------------
+   PAIEMENT EN LIGNE (CinetPay) — configuration et lien de paiement
+   --------------------------------------------------------- */
+async function renderPaiementConfig(){
+  const c = document.getElementById("content");
+  if (!KGP_SERVER){
+    c.innerHTML = `<h1 class="page-title">Paiement en ligne</h1><div class="table-wrap"><div class="empty">Le paiement en ligne n'est disponible qu'en mode serveur (installation en ligne).</div></div>`;
+    return;
+  }
+  let cfg = {};
+  try{ cfg = await kgpApi("GET", "/api/paiement/config"); }catch(e){ cfg = { configure:false }; }
+  const etat = cfg.configure
+    ? `<span class="badge success">Configuré</span> — identifiant de site : <b>${esc(cfg.siteId||"")}</b>`
+    : `<span class="badge danger">Non configuré</span>`;
+  c.innerHTML = `<h1 class="page-title">Paiement en ligne — CinetPay</h1>
+    <div class="page-sub">Encaissez vos factures par Orange Money, Wave, MTN, Moov ou carte bancaire. ${etat}</div>
+    <div class="card" style="max-width:640px;">
+      <p style="font-size:13px; color:#5B6479;">Récupérez ces identifiants dans votre tableau de bord CinetPay (Intégration → API). La clé secrète est conservée hors de l'application et n'est jamais réaffichée ; laissez un champ vide pour conserver la valeur actuelle.</p>
+      <label>Identifiant de site (site_id)</label>
+      <input id="pc_siteId" type="text" value="${esc(cfg.siteId||"")}" placeholder="ex. 445566">
+      <label>Clé API (apikey)</label>
+      <input id="pc_apikey" type="password" autocomplete="off" placeholder="${cfg.configure?"••••••• (inchangée)":"collez votre clé API"}">
+      <label>Clé secrète (pour vérifier les notifications)</label>
+      <input id="pc_secretKey" type="password" autocomplete="off" placeholder="${cfg.configure?"••••••• (inchangée)":"collez votre clé secrète"}">
+      <label>Moyen enregistré sur les encaissements</label>
+      <select id="pc_moyen">
+        ${["Mobile Money","Carte bancaire","Virement"].map(m=>`<option${(cfg.moyen||"Mobile Money")===m?" selected":""}>${m}</option>`).join("")}
+      </select>
+      <div style="margin-top:14px;"><button class="btn gold" data-act="savePaiementConfig">Enregistrer</button></div>
+      <p style="font-size:12px; color:#5B6479; margin-top:14px;">Adresse de notification à déclarer chez CinetPay (URL de notification / notify_url) :<br>
+        <code>${esc(location.origin + location.pathname.replace(/\/$/,"") )}/api/paiement/webhook</code></p>
+    </div>`;
+}
+async function savePaiementConfig(){
+  const v = id => document.getElementById(id).value;
+  try{
+    const r = await kgpApi("PUT", "/api/paiement/config", { siteId: v("pc_siteId"), apikey: v("pc_apikey"), secretKey: v("pc_secretKey"), moyen: v("pc_moyen") });
+    toast(r.configure ? "Paiement en ligne configuré" : "Configuration enregistrée");
+    renderPaiementConfig();
+  }catch(e){ toast(e.message || "Enregistrement impossible"); }
+}
+/* Bouton « Payer en ligne » d'une facture : ouvre la page de paiement sécurisée du prestataire. */
+async function payerEnLigne(id){
+  try{
+    const r = await kgpApi("POST", "/api/paiement/facture/" + Number(id), {});
+    if (r.paymentUrl){ toast("Ouverture du paiement sécurisé…"); window.open(r.paymentUrl, "_blank", "noopener"); }
+    else toast("Lien de paiement indisponible");
+  }catch(e){ toast(e.message || "Paiement en ligne indisponible — vérifiez la configuration CinetPay."); }
 }
 
 /* ---------------------------------------------------------

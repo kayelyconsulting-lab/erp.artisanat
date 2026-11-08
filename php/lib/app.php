@@ -5,6 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/validation.php';
 require __DIR__ . '/montants.php';
 require __DIR__ . '/comptabilisation.php';
+require __DIR__ . '/paiement.php';
 
 // Jamais de détail technique dans les réponses (chemins, traces) : tout part dans le
 // journal du serveur, sans les arguments des fonctions (codes secrets, fiches...).
@@ -540,6 +541,9 @@ function kgp_handle_api(string $p): void {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     if (kgp_cors($method)) return;
     kgp_tenant();
+    // Notification de paiement CinetPay : authentifiée par sa signature HMAC, pas par une session
+    // ni une origine (le prestataire n'envoie pas d'en-tête Origin). Traitée avant le contrôle d'origine.
+    if ($p === '/api/paiement/webhook' && $method === 'POST'){ kgp_paiement_webhook(); return; }
     kgp_assert_same_origin($method);
 
     if ($p === '/api/status' && $method === 'GET'){ kgp_send(['server' => true, 'needsSetup' => kgp_count('utilisateurs') === 0]); return; }
@@ -642,6 +646,16 @@ function kgp_handle_api(string $p): void {
         catch (ValidationError $e){ throw new ValidationError(array_map(fn($x) => 'Fiche ' . ($i + 1) . ' : ' . $x, $e->errors)); }
       }
       kgp_send(['ids' => $ids]);
+      return;
+    }
+    // Paiement en ligne : configuration (admin) et ouverture d'un paiement pour une facture.
+    if ($p === '/api/paiement/config'){
+      if ($method === 'GET'){ kgp_send(kgp_paiement_config_public()); return; }
+      if ($method === 'PUT'){ if (!kgp_is_admin($user)) throw new HttpError(403, 'Configuration réservée à l\'administrateur.'); kgp_paiement_config_set(kgp_body()); kgp_send(kgp_paiement_config_public()); return; }
+    }
+    if ($method === 'POST' && preg_match('#^/api/paiement/facture/(\d+)$#', $p, $m)){
+      $base = (kgp_is_https() ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? '') . ($GLOBALS['KGP_BASE'] ?? '') . '/' . (kgp_tenant()['slug'] ?? '');
+      kgp_send(kgp_paiement_initier($user, (int)$m[1], $base));
       return;
     }
     if ($method === 'POST' && preg_match('#^/api/immobilisations/(\d+)/dotation/(\d{4})$#', $p, $m)){

@@ -18,7 +18,9 @@ const root = `http://127.0.0.1:${port}`;
 const logFile = path.join(data, "php-server.log");
 const logFd = fs.openSync(logFile, "a");
 const php = spawn("php", ["-S", `127.0.0.1:${port}`, path.join(ROOT, "php", "dev-router.php")],
-  { env: { ...process.env, KGP_DATA_DIR: data }, stdio: ["ignore", "ignore", logFd] });
+  // KGP_CINETPAY_BASE pointe vers un hôte qui échoue aussitôt : la reconfirmation CinetPay du
+  // webhook ne part pas sur le vrai réseau pendant les tests (seule la signature est testée).
+  { env: { ...process.env, KGP_DATA_DIR: data, KGP_CINETPAY_BASE: "http://127.0.0.1:1" }, stdio: ["ignore", "ignore", logFd] });
 await new Promise(r => setTimeout(r, 700));
 
 let status = 1;

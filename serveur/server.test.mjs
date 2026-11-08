@@ -4,6 +4,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { createApp } from "./server.mjs";
+import { cinetpayToken, cinetpaySignatureValide } from "./paiement.mjs";
 
 let server, base;
 before(async () => {
@@ -185,6 +186,20 @@ test("comptabilisation paie et immobilisations (serveur)", async () => {
   assert.equal((await admin("DELETE", "/api/data/immobilisations/" + im.data.id)).status, 200);
   assert.equal((await srcEntries("immobilisations#" + im.data.id)).length, 0);
   assert.equal((await srcEntries("immobilisations#" + im.data.id + "#dotation-2026")).length, 0);
+});
+
+test("signature des notifications de paiement (CinetPay HMAC)", () => {
+  const post = { cpm_site_id: "12345", cpm_trans_id: "TID-1", cpm_trans_date: "2026-01-02", cpm_amount: "1000",
+    cpm_currency: "XOF", signature: "sig", payment_method: "OM", cel_phone_num: "0700", cpm_phone_prefixe: "225",
+    cpm_language: "fr", cpm_version: "v3", cpm_payment_config: "SINGLE", cpm_page_action: "PAYMENT",
+    cpm_custom: "", cpm_designation: "Facture", cpm_error_message: "" };
+  // Vecteur de référence (doit être identique en Node et en PHP — voir test-php.mjs).
+  const attendu = "b380d6d6b23bb7900f2ee1df92f165ce698984f4bcabd0601eb2a31445c545d6";
+  assert.equal(cinetpayToken(post, "secret-test-123"), attendu);
+  assert.ok(cinetpaySignatureValide(post, attendu, "secret-test-123"));
+  assert.ok(!cinetpaySignatureValide(post, "00" + attendu.slice(2), "secret-test-123"), "jeton falsifié refusé");
+  assert.ok(!cinetpaySignatureValide(post, attendu, "autre-secret"), "mauvaise clé refusée");
+  assert.ok(!cinetpaySignatureValide({ ...post, cpm_amount: "9999" }, attendu, "secret-test-123"), "montant modifié refusé");
 });
 
 test("droits par rôle", async () => {

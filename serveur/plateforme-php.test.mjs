@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { cinetpayToken } from "./paiement.mjs";
 
 const ROOT = process.env.KGP_TEST_ROOT;
 const DATA = process.env.KGP_TEST_DATA;
@@ -202,4 +203,31 @@ test("journaux et données : aucune information personnelle", { skip }, async ()
   // 3. Erreurs PHP jamais affichées dans les réponses
   const affiche = spawnSync("php", ["-r", `require "php/lib/app.php"; echo ini_get("display_errors");`], { encoding: "utf8" });
   assert.equal(affiche.stdout.trim(), "0");
+});
+
+test("paiement en ligne (CinetPay) : configuration et signature", { skip }, async () => {
+  const a = client();
+  await a("POST", "/alpha/api/login", { login: "admin", password: "Alpha-Nouveau-2026" });
+  // Configuration absente au départ
+  assert.equal((await a("GET", "/alpha/api/paiement/config")).data.configure, false);
+  // L'administrateur configure CinetPay ; la réponse ne contient jamais l'apikey ni la clé secrète
+  const set = await a("PUT", "/alpha/api/paiement/config", { siteId: "12345", apikey: "APIKEY", secretKey: "secret-test-123", moyen: "Mobile Money" });
+  assert.equal(set.status, 200);
+  assert.deepEqual(set.data, { configure: true, siteId: "12345", moyen: "Mobile Money" });
+  const vue = (await a("GET", "/alpha/api/paiement/config")).data;
+  assert.equal(vue.apikey, undefined); assert.equal(vue.secretKey, undefined);
+  // La clé secrète est hors de la base (fichier du dossier de données, jamais servi)
+  assert.ok(fs.existsSync(path.join(DATA, "societes", "alpha.paiement.json")));
+
+  const post = { cpm_site_id: "12345", cpm_trans_id: "alpha-F1-1", cpm_trans_date: "2026-02-02", cpm_amount: "1000",
+    cpm_currency: "XOF", signature: "s", payment_method: "OM", cel_phone_num: "", cpm_phone_prefixe: "", cpm_language: "fr",
+    cpm_version: "v3", cpm_payment_config: "", cpm_page_action: "PAYMENT", cpm_custom: "", cpm_designation: "F", cpm_error_message: "" };
+  const body = new URLSearchParams(post).toString();
+  const envoyer = token => fetch(ROOT + "/alpha/api/paiement/webhook", { method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "x-token": token }, body });
+  // Signature invalide : rejetée
+  assert.equal((await envoyer("deadbeef")).status, 403);
+  // Signature valide : acceptée (puis reconfirmation CinetPay ; ici l'API n'est pas joignable -> aucun règlement)
+  assert.equal((await envoyer(cinetpayToken(post, "secret-test-123"))).status, 200);
+  assert.equal((await a("GET", "/alpha/api/data/reglements")).data.filter(r => r.reference === "CinetPay alpha-F1-1").length, 0);
 });
