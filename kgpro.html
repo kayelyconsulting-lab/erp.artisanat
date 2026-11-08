@@ -490,7 +490,8 @@ const SECTIONS = [
           {k:"tvaPct",l:"TVA (%)",t:"number",def:18},
           {k:"timbreQuittance",l:"Timbre de quittance (FCFA)",t:"number",def:0},
           {k:"montantRegle",l:"Payé à la création (acompte) — les paiements suivants se saisissent dans « Règlements »",t:"number",def:0},
-          {k:"modeReglement",l:"Réglé par (compte de trésorerie)",t:"select",opts:["Caisse","Banque"],def:"Caisse"} ],
+          {k:"modeReglement",l:"Réglé par (compte de trésorerie)",t:"select",opts:["Caisse","Banque"],def:"Caisse"},
+          {k:"compteTreso",l:"Caisse ou banque précise (facultatif)",t:"tresoselect"} ],
         cols:["numero","date","fournisseur","montantTTC","regle","solde","statut"], special:"facturesAchat" },
   ]},
   { id:"stocks", num:"05", label:"Stocks", icon:"📦", modules:[
@@ -552,7 +553,8 @@ const SECTIONS = [
           {k:"tvaPct",l:"TVA (%)",t:"number",def:18},
           {k:"timbreQuittance",l:"Timbre de quittance (FCFA)",t:"number",def:0},
           {k:"montantRegle",l:"Encaissé à la création (acompte) — les encaissements suivants se saisissent dans « Règlements »",t:"number",def:0},
-          {k:"modeReglement",l:"Encaissé par (compte de trésorerie)",t:"select",opts:["Caisse","Banque"],def:"Caisse"} ],
+          {k:"modeReglement",l:"Encaissé par (compte de trésorerie)",t:"select",opts:["Caisse","Banque"],def:"Caisse"},
+          {k:"compteTreso",l:"Caisse ou banque précise (facultatif)",t:"tresoselect"} ],
         cols:["numero","date","client","montantTTC","regle","solde","statut"], special:"factures" },
       { key:"avoirs", label:"Avoirs", fields:[
           {k:"date",l:"Date",t:"date",req:1},
@@ -568,23 +570,39 @@ const SECTIONS = [
           {k:"factureAchat",l:"Facture d'achat réglée (paiement)",t:"dynselect",source:"facturesAchat",labelField:"numero"},
           {k:"montant",l:"Montant réglé",t:"number",req:1},
           {k:"modeReglement",l:"Compte de trésorerie",t:"select",opts:["Caisse","Banque"],def:"Caisse",req:1},
+          {k:"compteTreso",l:"Caisse ou banque précise (facultatif)",t:"tresoselect"},
           {k:"moyen",l:"Moyen de paiement",t:"select",opts:["Espèces","Chèque","Virement","Mobile Money","Carte bancaire"]},
           {k:"reference",l:"Référence (n° de chèque, de transaction...)",t:"text"} ],
         cols:["numero","date","type","factureRef","tiers","montant","moyen","reference"] },
       { key:"relances", label:"Relances clients", readonly:"relances" },
   ]},
   { id:"tresorerie", num:"07", label:"Trésorerie", icon:"💰", modules:[
-      { key:"banques", label:"Banques", fields:[
+      { key:"banques", label:"Banques", special:"compteTreso", fields:[
           {k:"nom",l:"Nom banque",t:"text",req:1},{k:"numCompte",l:"N° compte",t:"text"},
-          {k:"agence",l:"Agence",t:"text"},{k:"compteOhada",l:"Compte OHADA lié",t:"text"},
+          {k:"agence",l:"Agence",t:"text"},{k:"compteOhada",l:"Compte OHADA lié (vide = attribué automatiquement : 5211, 5212...)",t:"text"},
           {k:"soldeInit",l:"Solde initial",t:"number"} ], cols:["nom","numCompte","compteOhada","soldeInit"] },
-      { key:"caisses", label:"Caisses", fields:[
+      { key:"caisses", label:"Caisses", special:"compteTreso", fields:[
           {k:"nom",l:"Nom caisse",t:"text",req:1},{k:"responsable",l:"Responsable",t:"text"},
-          {k:"compteOhada",l:"Compte OHADA (571x)",t:"text"},{k:"soldeInit",l:"Solde initial",t:"number"} ],
+          {k:"compteOhada",l:"Compte OHADA (vide = attribué automatiquement : 5711, 5712...)",t:"text"},{k:"soldeInit",l:"Solde initial",t:"number"} ],
         cols:["nom","responsable","compteOhada","soldeInit"] },
-      { key:"treso_caisse", label:"Caisse (tickets)", special:"treso", compte:"571", fields:tresoFields(),
-        cols:["numero","date","type","motif","tiers","montant","solde"] },
-      { key:"rapprochement", label:"Rapprochement bancaire", fields:[
+      { key:"soldesTresorerie", label:"Soldes par caisse et banque", readonly:"soldesTreso" },
+      { key:"treso_caisse", label:"Tickets de caisse / banque", special:"treso", compte:"571", fields:tresoFields(),
+        cols:["numero","date","caisse","type","motif","tiers","montant","solde"] },
+      { key:"virementsInternes", label:"Virements internes", special:"virement", fields:[
+          {k:"date",l:"Date",t:"date",req:1},
+          {k:"source",l:"Depuis (caisse ou banque)",t:"tresoselect",req:1},
+          {k:"destination",l:"Vers (caisse ou banque)",t:"tresoselect",req:1},
+          {k:"montant",l:"Montant",t:"number",req:1},
+          {k:"motif",l:"Motif",t:"text"} ],
+        cols:["numero","date","source","destination","montant","motif"] },
+      { key:"relevesBancaires", label:"Relevés bancaires importés", fields:[
+          {k:"banque",l:"Banque",t:"dynselect",source:"banques",labelField:"nom",req:1},
+          {k:"dateReleve",l:"Date du relevé",t:"date",req:1},
+          {k:"soldeFinal",l:"Solde final indiqué par la banque",t:"number"},
+          {k:"fichier",l:"Fichier importé",t:"text"} ],
+        cols:["numero","banque","dateReleve","soldeFinal","fichier"] },
+      { key:"rapprochementAuto", label:"Rapprochement bancaire automatique", readonly:"rapprochementAuto" },
+      { key:"rapprochement", label:"Rapprochement (saisie manuelle)", fields:[
           {k:"banque",l:"Banque",t:"text",req:1},{k:"dateReleve",l:"Date relevé",t:"date"},
           {k:"soldeCompta",l:"Solde comptable",t:"number"},{k:"soldeReleve",l:"Solde relevé bancaire",t:"number"} ],
         cols:["banque","dateReleve","soldeCompta","soldeReleve","ecart"] },
@@ -709,6 +727,7 @@ const SECTIONS = [
 function tresoFields(){
   return [
     {k:"date",l:"Date",t:"date",req:1},
+    {k:"caisse",l:"Caisse ou banque (vide = caisse générale 571)",t:"tresoselect"},
     {k:"type",l:"Type d'opération",t:"select",opts:["Encaissement","Décaissement"],req:1},
     {k:"motif",l:"Motif / libellé",t:"text",req:1},
     {k:"tiers",l:"Tiers (client / fournisseur / employé)",t:"text"},
@@ -726,7 +745,7 @@ SECTIONS.forEach(sec => sec.modules.forEach(mod => { MODULE_INDEX[mod.key] = { s
 const NUMERO_PREFIXES = {
   devis:"DV", bonsCommande:"BC", bonsLivraison:"BL", factures:"FA", avoirs:"AV",
   treso_caisse:"TK-CA", treso_sib:"TK-SIB", treso_baci:"TK-BACI", treso_boa:"TK-BOA",
-  treso_ecobank:"TK-ECO", treso_nsia:"TK-NSIA", immobilisations:"IMMO", facturesAchat:"FA-ACH", reglements:"RG",
+  treso_ecobank:"TK-ECO", treso_nsia:"TK-NSIA", immobilisations:"IMMO", facturesAchat:"FA-ACH", reglements:"RG", virementsInternes:"VI", relevesBancaires:"REL",
 };
 async function generateNumero(storeKey){
   const prefix = NUMERO_PREFIXES[storeKey];
@@ -1621,6 +1640,8 @@ async function renderRoute(moduleKey){
   if (entry.mod.readonly === "dashboardCompta") return renderDashboardCompta();
   if (entry.mod.readonly === "etats") return renderEtatsFinanciers();
   if (entry.mod.readonly === "tva") return renderDeclarationTva();
+  if (entry.mod.readonly === "soldesTreso") return renderSoldesTresorerie();
+  if (entry.mod.readonly === "rapprochementAuto") return renderRapprochementAuto();
   if (entry.mod.single) return renderSingleForm(entry.mod);
   return renderModuleList(entry.mod);
 }
@@ -2235,6 +2256,15 @@ async function openForm(storeKey, id){
           <option value=""></option>
           ${f.opts.map(o=>`<option value="${esc(o)}" ${o===val?"selected":""}>${esc(o)}</option>`).join("")}
         </select></div>`);
+    } else if (f.t === "tresoselect"){
+      const comptes = await comptesTresorerie();
+      const groupe = type => comptes.filter(c => c.type === type)
+        .map(c => `<option value="${esc(c.nom)}" ${c.nom===val?"selected":""}>${esc(c.nom)} (${esc(c.compte)})</option>`).join("");
+      const inconnue = val && !comptes.some(c => c.nom === val) ? `<option value="${esc(val)}" selected>${esc(val)}</option>` : "";
+      fieldsHtmlParts.push(`<div class="field"><label>${f.l}${f.req?" *":""}</label>
+        <select id="f_${f.k}"><option value=""></option>${inconnue}
+          <optgroup label="Caisses">${groupe("Caisse")}</optgroup><optgroup label="Banques">${groupe("Banque")}</optgroup>
+        </select></div>`);
     } else if (f.t === "dynselect"){
       const options = await getAllSafe(f.source);
       const opts = options.map(o => o[f.labelField]).filter(Boolean);
@@ -2718,6 +2748,14 @@ async function saveFormInterne(storeKey, id){
     const ok = await preparerReglement(record, existing);
     if (!ok) return;
   }
+  if (mod.special === "compteTreso"){
+    const ok = await attribuerCompteTresorerie(storeKey, record);
+    if (!ok) return;
+  }
+  if (mod.special === "virement"){
+    if (record.source === record.destination){ toast("La source et la destination doivent être différentes"); return; }
+    if (!(Number(record.montant) > 0)){ toast("Le montant doit être supérieur à 0"); return; }
+  }
   if (storeKey === "stockSorties"){
     const dispo = await getArticleStock(record.article) + (existing && existing.article === record.article ? Number(existing.quantite)||0 : 0);
     if (Number(record.quantite) > dispo) toast("Attention : stock disponible de « "+record.article+" » insuffisant ("+fmtQty(dispo)+")");
@@ -2782,6 +2820,43 @@ async function ouvrirReglement(storeKey, id){
    --------------------------------------------------------- */
 const COMPTE_REGLEMENT = { "Caisse":"571", "Banque":"521" };
 function journalTresorerie(mode){ return mode === "Banque" ? "BQ-Banque" : "CA-Caisse"; }
+
+/* Caisses et banques déclarées, avec leur compte comptable. */
+async function comptesTresorerie(){
+  const [caisses, banques] = await Promise.all([getAllSafe("caisses"), getAllSafe("banques")]);
+  return [
+    ...caisses.map(c => ({ type:"Caisse", nom:c.nom, compte:String(c.compteOhada||"571").trim(), soldeInit:Number(c.soldeInit)||0, id:c.id })),
+    ...banques.map(b => ({ type:"Banque", nom:b.nom, compte:String(b.compteOhada||"521").trim(), soldeInit:Number(b.soldeInit)||0, id:b.id })),
+  ];
+}
+/* Compte de trésorerie à utiliser : la caisse/banque précise si elle est choisie,
+   sinon le compte général (571 caisse, 521 banque). */
+function resoudreTresorerie(comptes, nom, mode){
+  const t = nom && (comptes || []).find(c => c.nom === nom);
+  if (t) return { compte:t.compte, journal: t.type === "Banque" ? "BQ-Banque" : "CA-Caisse", nom:t.nom, type:t.type };
+  const banque = mode === "Banque";
+  return { compte: banque ? "521" : "571", journal: banque ? "BQ-Banque" : "CA-Caisse", nom:"", type: banque ? "Banque" : "Caisse" };
+}
+/* Nouvelle caisse / banque : compte attribué automatiquement (5711, 5712... / 5211, 5212...)
+   s'il n'est pas saisi ; un compte ne peut servir qu'à une seule caisse ou banque. */
+async function attribuerCompteTresorerie(storeKey, record){
+  const comptes = await comptesTresorerie();
+  const autres = comptes.filter(c => !(c.id === record.id && c.type === (storeKey === "banques" ? "Banque" : "Caisse")));
+  if (autres.some(c => c.nom.toLowerCase() === String(record.nom||"").trim().toLowerCase())){
+    toast("Une caisse ou banque porte déjà le nom « "+record.nom+" »"); return false;
+  }
+  let compte = String(record.compteOhada||"").trim();
+  const racine = storeKey === "banques" ? "521" : "571";
+  if (!compte){
+    let n = 1;
+    while (autres.some(c => c.compte === racine + n)) n++;
+    compte = racine + n;
+  }
+  if (!/^5\d{2,}$/.test(compte)){ toast("Le compte d'une caisse ou banque doit être un compte de classe 5 (ex. "+racine+"1)"); return false; }
+  if (autres.some(c => c.compte === compte)){ toast("Le compte "+compte+" est déjà utilisé par « "+autres.find(c => c.compte === compte).nom+" »"); return false; }
+  record.compteOhada = compte;
+  return true;
+}
 function journalSource(storeKey, id, suffixe){ return storeKey + "#" + id + (suffixe ? "#" + suffixe : ""); }
 
 /* Ancien format (avant la notion de « source ») : pièce + journal utilisés par chaque module. */
@@ -2795,6 +2870,8 @@ function anciennesPieces(storeKey, record){
     case "paieCalcul": return { pieces:["PAIE-"+record.id], journaux:["OD-Paie"] };
     case "immobilisations": return { pieces:[record.numero], journaux:["IM-Immobilisations"] };
     case "reglements": return { pieces:[], journaux:[] };
+    case "virementsInternes": return { pieces:[], journaux:[] };
+    case "relevesBancaires": return { pieces:[], journaux:[] };
     default: return null;
   }
 }
@@ -2817,10 +2894,10 @@ async function supprimerEcritures(storeKey, record, avecSousPieces){
 }
 
 /* Écritures d'un règlement saisi sur une facture (vente : 5xx/411, achat : 401/5xx). */
-function lignesReglement(record, achat){
+function lignesReglement(record, achat, comptes){
   const regle = Number(record.montantRegle)||0;
   if (regle <= 0) return [];
-  const treso = COMPTE_REGLEMENT[record.modeReglement] || "571";
+  const treso = resoudreTresorerie(comptes, record.compteTreso, record.modeReglement).compte;
   return achat
     ? [{compte:"401", libelle:"Règlement "+(record.fournisseur||""), debit:regle, credit:0},
        {compte:treso, libelle:"Règlement "+(record.fournisseur||""), debit:0, credit:regle}]
@@ -2833,9 +2910,10 @@ async function comptabiliser(storeKey, record){
   const mod = MODULE_INDEX[storeKey].mod;
   const src = journalSource(storeKey, record.id);
   const special = mod.special;
-  const comptabilisable = ["factures","avoirs","facturesAchat","stockEntree","treso","paie","immobilisations","reglement"].includes(special);
+  const comptabilisable = ["factures","avoirs","facturesAchat","stockEntree","treso","paie","immobilisations","reglement","virement"].includes(special);
   if (!comptabilisable) return "";
   await supprimerEcritures(storeKey, record, false);
+  const comptesT = await comptesTresorerie();
 
   if (special === "factures"){
     const ht = Number(record.montantHT)||0, tvaPct = Number(record.tvaPct)||0, timbre = Number(record.timbreQuittance)||0;
@@ -2846,7 +2924,8 @@ async function comptabiliser(storeKey, record){
       ...(tva>0 ? [{compte:"4431", libelle:"TVA facturée", debit:0, credit:tva}] : []),
       ...(timbre>0 ? [{compte:"4472", libelle:"Timbre de quittance à reverser", debit:0, credit:timbre}] : []),
     ], src);
-    await postJournal(record.date, journalTresorerie(record.modeReglement), record.numero, lignesReglement(record, false), src);
+    const tf = resoudreTresorerie(comptesT, record.compteTreso, record.modeReglement);
+    await postJournal(record.date, tf.journal, record.numero, lignesReglement(record, false, comptesT), src);
     await syncStockSortiesForFacture(record);
     return "Facture "+record.numero+" enregistrée — écritures comptables et sortie de stock générées automatiquement";
   }
@@ -2869,7 +2948,8 @@ async function comptabiliser(storeKey, record){
       ...(timbre>0 ? [{compte:"646", libelle:"Droits de timbre (quittance)", debit:timbre, credit:0}] : []),
       {compte:"401", libelle:"Fournisseur "+(record.fournisseur||""), debit:0, credit:ttc},
     ], src);
-    await postJournal(record.date, journalTresorerie(record.modeReglement), record.numero, lignesReglement(record, true), src);
+    const ta = resoudreTresorerie(comptesT, record.compteTreso, record.modeReglement);
+    await postJournal(record.date, ta.journal, record.numero, lignesReglement(record, true, comptesT), src);
     await syncStockEntreesForFactureAchat(record);
     return "Facture d'achat "+record.numero+" enregistrée — écritures comptables et entrée en stock générées automatiquement";
   }
@@ -2886,17 +2966,28 @@ async function comptabiliser(storeKey, record){
   }
   if (special === "reglement"){
     const montant = Number(record.montant)||0;
-    const treso = COMPTE_REGLEMENT[record.modeReglement] || "571";
+    const t = resoudreTresorerie(comptesT, record.compteTreso, record.modeReglement);
+    const treso = t.compte;
     const libelle = "Règlement "+(record.factureRef||"")+" "+(record.tiers||"")+(record.moyen ? " ("+record.moyen+")" : "");
     const lignes = record.type === "Paiement fournisseur"
       ? [{compte:"401", libelle, debit:montant, credit:0}, {compte:treso, libelle, debit:0, credit:montant}]
       : [{compte:treso, libelle, debit:montant, credit:0}, {compte:"411", libelle, debit:0, credit:montant}];
-    await postJournal(record.date, journalTresorerie(record.modeReglement), record.numero, lignes, src);
+    await postJournal(record.date, t.journal, record.numero, lignes, src);
     return "Règlement "+record.numero+" de "+fmt(montant)+" enregistré sur "+(record.factureRef||"")+" — écriture comptable générée automatiquement";
+  }
+  if (special === "virement"){
+    const montant = Number(record.montant)||0;
+    const de = resoudreTresorerie(comptesT, record.source), vers = resoudreTresorerie(comptesT, record.destination);
+    const libelle = "Virement "+(record.source||"")+" → "+(record.destination||"")+(record.motif ? " — "+record.motif : "");
+    await postJournal(record.date, "BQ-Banque", record.numero, [
+      {compte:vers.compte, libelle, debit:montant, credit:0},
+      {compte:de.compte, libelle, debit:0, credit:montant},
+    ], src);
+    return "Virement "+record.numero+" de "+fmt(montant)+" enregistré — écriture comptable générée automatiquement";
   }
   if (special === "treso"){
     const montant = Number(record.montant)||0;
-    const compteTreso = mod.compte;
+    const compteTreso = record.caisse ? resoudreTresorerie(comptesT, record.caisse).compte : mod.compte;
     const lignes = record.type === "Encaissement"
       ? [{compte:compteTreso, libelle:record.motif, debit:montant, credit:0},
          {compte:record.contrepartie, libelle:record.motif, debit:0, credit:montant}]
@@ -3834,6 +3925,307 @@ async function renderDashboardCompta(){
 }
 
 /* ---------------------------------------------------------
+   SOLDES PAR CAISSE ET BANQUE
+   --------------------------------------------------------- */
+async function computeSoldesTresorerie(){
+  const [comptes, journal] = await Promise.all([comptesTresorerie(), getAllSafe("journal")]);
+  const lignes = comptes.map(c => ({ ...c, debit:0, credit:0 }));
+  const parCompte = {};
+  lignes.forEach(l => { parCompte[l.compte] = l; });
+  const nonAffectes = {};
+  journal.forEach(e => {
+    const c = String(e.compte||"").trim();
+    if (c.charAt(0) !== "5") return;
+    const d = Number(e.debit)||0, cr = Number(e.credit)||0;
+    const l = parCompte[c] || (nonAffectes[c] = nonAffectes[c] || { type: c.startsWith("52") ? "Banque" : c.startsWith("57") ? "Caisse" : "Autre",
+      nom: c === "571" ? "Caisse générale (non affectée)" : c === "521" ? "Banque générale (non affectée)" : "Compte "+c, compte:c, soldeInit:0, debit:0, credit:0, nonAffecte:true });
+    l.debit += d; l.credit += cr;
+  });
+  const tout = [...lignes, ...Object.values(nonAffectes)].map(l => ({ ...l, solde: l.soldeInit + l.debit - l.credit }));
+  return tout.sort((a,b) => a.type.localeCompare(b.type) || a.compte.localeCompare(b.compte));
+}
+async function renderSoldesTresorerie(){
+  const lignes = await computeSoldesTresorerie();
+  const total = lignes.reduce((s,l) => s + l.solde, 0);
+  document.getElementById("content").innerHTML = `
+    <h1 class="page-title">Soldes par caisse et banque</h1>
+    <div class="page-sub">Solde initial + mouvements du Journal sur le compte de chaque caisse et banque — total : <b>${fmt(total)}</b></div>
+    <div class="toolbar">
+      <button class="btn small ghost" onclick="renderRoute('virementsInternes')">↔️ Virements internes</button>
+      <button class="btn small ghost" onclick="renderRoute('rapprochementAuto')">🏦 Rapprochement bancaire</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Type</th><th>Caisse / banque</th><th>Compte</th><th>Solde initial</th><th>Entrées</th><th>Sorties</th><th>Solde</th></tr></thead>
+      <tbody>${lignes.map(l => `<tr><td>${esc(l.type)}</td><td>${esc(l.nom)}${l.nonAffecte ? ' <span class="badge warn">à répartir</span>' : ""}</td><td>${esc(l.compte)}</td>
+        <td>${fmt(l.soldeInit)}</td><td>${fmt(l.debit)}</td><td>${fmt(l.credit)}</td><td><b>${fmt(l.solde)}</b></td></tr>`).join("")
+        || `<tr><td colspan="7" class="empty">Aucune caisse ni banque : créez-les dans Trésorerie &gt; Caisses / Banques.</td></tr>`}
+      <tr style="font-weight:700; background:#F8FAFD;"><td colspan="6">TOTAL TRÉSORERIE</td><td>${fmt(total)}</td></tr></tbody>
+    </table></div>
+    <div class="page-sub" style="margin-top:8px;">« À répartir » : mouvements passés sur le compte général 571 ou 521 (pièces sans caisse ou banque précise).</div>`;
+}
+
+/* ---------------------------------------------------------
+   RAPPROCHEMENT BANCAIRE AUTOMATIQUE
+   Un relevé importé (Excel / CSV) est rapproché des écritures du compte de la banque :
+   même montant, date à 7 jours près. Les lignes restantes se comptabilisent (frais,
+   agios...) ou se rapprochent à la main.
+   --------------------------------------------------------- */
+let rapproBanque = null, rapproReleveId = null;
+const RAPPRO_JOURS = 7;
+
+function nombreReleve(v){
+  if (typeof v === "number") return v;
+  const t = String(v ?? "").replace(/[\s\u00a0\u202f]/g, "").replace(/FCFA|XOF|CFA/gi, "");
+  if (!t) return 0;
+  const norm = /,\d{1,2}$/.test(t) ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
+  const n = Number(norm);
+  return Number.isFinite(n) ? n : 0;
+}
+function dateReleve(v){
+  const iso = d => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  if (v instanceof Date && !isNaN(v)) return iso(v);
+  if (typeof v === "number" && v > 20000 && v < 80000) return iso(new Date(Math.round((v - 25569) * 86400000) + new Date().getTimezoneOffset() * 60000));
+  const t = String(v ?? "").trim();
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/.exec(t);
+  if (m){ const a = m[3].length === 2 ? "20" + m[3] : m[3]; return `${a}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`; }
+  return "";
+}
+/* Lit les lignes d'un relevé (tableau de lignes = tableaux de cellules), en repérant
+   les colonnes Date / Libellé / Débit / Crédit ou Montant. Montant > 0 = entrée en banque. */
+function lireLignesReleve(rows){
+  const norme = x => String(x ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const iEntete = rows.findIndex(r => r.some(c => /date/.test(norme(c))) && r.some(c => /montant|debit|credit|retrait|depot/.test(norme(c))));
+  if (iEntete < 0) throw new Error("Colonnes introuvables : le relevé doit contenir une colonne « Date » et « Montant » (ou « Débit » / « Crédit »).");
+  const ent = rows[iEntete].map(norme);
+  const pris = new Set();
+  const col = re => { const i = ent.findIndex((h, j) => !pris.has(j) && re.test(h)); if (i >= 0) pris.add(i); return i; };
+  // ordre important : chaque colonne n'est attribuée qu'une fois (ex. « Date opération » reste la date)
+  const cDate = col(/date/), cDeb = col(/debit|retrait|sortie/), cCre = col(/credit|depot|entree|versement/),
+        cMont = col(/montant/), cLib = col(/libelle|description|operation|motif|detail|nature/);
+  const lignes = [];
+  for (const r of rows.slice(iEntete + 1)){
+    const date = dateReleve(r[cDate]);
+    if (!date) continue;
+    const montant = cMont >= 0 && cDeb < 0 && cCre < 0 ? nombreReleve(r[cMont]) : nombreReleve(r[cCre]) - nombreReleve(r[cDeb]);
+    if (!montant) continue;
+    lignes.push({ date, libelle: String(cLib >= 0 ? r[cLib] ?? "" : "").trim().slice(0, 200), montant: Math.round(montant * 100) / 100, ecritureId: null, mode: "" });
+  }
+  if (!lignes.length) throw new Error("Aucune ligne datée avec un montant n'a été trouvée dans le fichier.");
+  return lignes;
+}
+/* Fichier relevé -> tableau de lignes. CSV : décodé en UTF-8 (repli Windows-1252) et lu
+   SANS interprétation des dates (sinon 10/03/2026 serait lu à l'américaine, le 3 octobre). */
+function lireFichierReleve(nomFichier, octets){
+  let wb;
+  if (/\.(csv|txt)$/i.test(nomFichier)){
+    let texte = new TextDecoder("utf-8").decode(octets);
+    if (texte.includes("\uFFFD")) texte = new TextDecoder("windows-1252").decode(octets);
+    wb = XLSX.read(texte.replace(/^\uFEFF/, ""), { type:"string", raw:true });
+  } else {
+    wb = XLSX.read(octets, { type:"array", cellDates:true });
+  }
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, raw:true, defval:"" });
+}
+async function banqueDuReleve(releve){
+  return (await comptesTresorerie()).find(c => c.type === "Banque" && c.nom === releve.banque);
+}
+/* Écritures déjà rapprochées (tous relevés confondus). */
+async function ecrituresRapprochees(saufReleveId){
+  const pris = new Set();
+  (await getAllSafe("relevesBancaires")).forEach(r => { if (r.id !== saufReleveId) (r.lignes||[]).forEach(l => { if (l.ecritureId) pris.add(l.ecritureId); }); });
+  return pris;
+}
+const ecartJours = (a, b) => Math.abs((new Date(a + "T00:00:00") - new Date(b + "T00:00:00")) / 86400000);
+
+async function rapprocherAutomatiquement(releve){
+  const banque = await banqueDuReleve(releve);
+  if (!banque) return 0;
+  const journal = (await getAllSafe("journal")).filter(e => String(e.compte||"").trim() === banque.compte);
+  const pris = await ecrituresRapprochees(releve.id);
+  (releve.lignes||[]).forEach(l => { if (l.ecritureId) pris.add(l.ecritureId); });
+  let n = 0;
+  for (const l of releve.lignes||[]){
+    if (l.ecritureId) continue;
+    const candidats = journal.filter(e => !pris.has(e.id) && e.date
+      && Math.abs(((Number(e.debit)||0) - (Number(e.credit)||0)) - l.montant) < 0.01 && ecartJours(e.date, l.date) <= RAPPRO_JOURS)
+      .sort((a,b) => ecartJours(a.date, l.date) - ecartJours(b.date, l.date));
+    if (candidats.length){ l.ecritureId = candidats[0].id; l.mode = "auto"; pris.add(candidats[0].id); n++; }
+  }
+  await putRecord("relevesBancaires", releve);
+  return n;
+}
+/* Crée le relevé, puis le rapproche automatiquement. Utilisé par l'import de fichier. */
+async function importerReleve(banqueNom, lignes, options){
+  options = options || {};
+  const dates = lignes.map(l => l.date).sort();
+  const releve = { banque: banqueNom, dateReleve: options.dateReleve || dates[dates.length - 1],
+    soldeFinal: options.soldeFinal === "" || options.soldeFinal == null ? 0 : Number(options.soldeFinal) || 0,
+    soldeFinalConnu: !(options.soldeFinal === "" || options.soldeFinal == null),
+    fichier: options.fichier || "", lignes };
+  releve.numero = await generateNumero("relevesBancaires");
+  releve.id = await putRecord("relevesBancaires", releve);
+  const n = await rapprocherAutomatiquement(releve);
+  return { releve, rapprochees: n };
+}
+async function choisirFichierReleve(){
+  if (typeof XLSX === "undefined"){ toast("Bibliothèque Excel indisponible (vérifiez la connexion internet)"); return; }
+  const input = document.createElement("input");
+  input.type = "file"; input.accept = ".xlsx,.xls,.csv";
+  input.onchange = async () => {
+    const file = input.files[0]; if (!file) return;
+    try{
+      const lignes = lireLignesReleve(lireFichierReleve(file.name, new Uint8Array(await file.arrayBuffer())));
+      const solde = prompt("Solde final indiqué sur le relevé (laisser vide s'il n'apparaît pas) :", "");
+      const { releve, rapprochees } = await importerReleve(rapproBanque, lignes, { soldeFinal: solde === null ? "" : solde.trim() === "" ? "" : nombreReleve(solde), fichier: file.name });
+      rapproReleveId = releve.id;
+      toast(lignes.length + " ligne(s) importée(s), " + rapprochees + " rapprochée(s) automatiquement");
+      renderRapprochementAuto();
+    }catch(e){ toast("Import impossible : " + e.message); }
+  };
+  input.click();
+}
+async function comptabiliserLigneReleve(releveId, i, compte){
+  const releve = (await getAllSafe("relevesBancaires")).find(r => r.id === releveId);
+  const l = releve && releve.lignes[i];
+  if (!l || l.ecritureId) return;
+  if (!compte){
+    compte = prompt("Compte de contrepartie (ex. 631 frais bancaires, 6711 agios, 471 compte d'attente) :", l.montant < 0 ? "631" : "471");
+    if (!compte) return;
+  }
+  compte = String(compte).trim();
+  if (!/^\d{2,}$/.test(compte)){ toast("Numéro de compte invalide"); return; }
+  if (!(await verifierCloture("journal", { date: l.date }))) return;
+  const banque = await banqueDuReleve(releve);
+  if (!banque){ toast("Banque introuvable"); return; }
+  const m = Math.abs(l.montant), src = journalSource("relevesBancaires", releve.id, "ligne-" + i);
+  const libelle = (l.libelle || "Opération bancaire") + " (relevé " + (releve.numero||"") + ")";
+  const base = { date:l.date, journalType:"BQ-Banque", piece:releve.numero || "", libelle, source:src };
+  const idBanque = await putRecord("journal", { ...base, compte:banque.compte, debit: l.montant > 0 ? m : 0, credit: l.montant < 0 ? m : 0 });
+  await putRecord("journal", { ...base, compte, debit: l.montant < 0 ? m : 0, credit: l.montant > 0 ? m : 0 });
+  l.ecritureId = idBanque; l.mode = "comptabilise";
+  await putRecord("relevesBancaires", releve);
+  toast("Ligne comptabilisée sur le compte " + compte);
+  renderRapprochementAuto();
+}
+async function lierLigneReleve(releveId, i, ecritureId){
+  const releve = (await getAllSafe("relevesBancaires")).find(r => r.id === releveId);
+  if (!releve || !releve.lignes[i] || !ecritureId) return;
+  releve.lignes[i].ecritureId = Number(ecritureId); releve.lignes[i].mode = "manuel";
+  await putRecord("relevesBancaires", releve);
+  renderRapprochementAuto();
+}
+async function annulerLigneReleve(releveId, i){
+  const releve = (await getAllSafe("relevesBancaires")).find(r => r.id === releveId);
+  const l = releve && releve.lignes[i];
+  if (!l) return;
+  if (l.mode === "comptabilise"){
+    if (!(await verifierCloture("journal", { date: l.date }))) return;
+    const src = journalSource("relevesBancaires", releve.id, "ligne-" + i);
+    for (const e of (await getAllSafe("journal")).filter(e => e.source === src)) await deleteRecord("journal", e.id);
+  }
+  l.ecritureId = null; l.mode = "";
+  await putRecord("relevesBancaires", releve);
+  renderRapprochementAuto();
+}
+async function relancerRapprochement(releveId){
+  const releve = (await getAllSafe("relevesBancaires")).find(r => r.id === releveId);
+  if (!releve) return;
+  const n = await rapprocherAutomatiquement(releve);
+  toast(n + " ligne(s) supplémentaire(s) rapprochée(s)");
+  renderRapprochementAuto();
+}
+/* Situation d'un relevé : lignes, écritures en suspens, soldes et écart. */
+async function situationReleve(releve){
+  const banque = await banqueDuReleve(releve);
+  const journal = banque ? (await getAllSafe("journal")).filter(e => String(e.compte||"").trim() === banque.compte) : [];
+  const parId = {}; journal.forEach(e => { parId[e.id] = e; });
+  const pris = await ecrituresRapprochees(releve.id);
+  (releve.lignes||[]).forEach(l => { if (l.ecritureId && parId[l.ecritureId]) pris.add(l.ecritureId); });
+  const mvt = e => (Number(e.debit)||0) - (Number(e.credit)||0);
+  const soldeComptable = (banque ? banque.soldeInit : 0) + journal.filter(e => e.date && e.date <= releve.dateReleve).reduce((s,e) => s + mvt(e), 0);
+  const suspens = journal.filter(e => e.date && e.date <= releve.dateReleve && !pris.has(e.id)).sort((a,b) => (a.date||"").localeCompare(b.date||""));
+  const lignes = (releve.lignes||[]).map((l, i) => ({ ...l, i, ecriture: l.ecritureId ? parId[l.ecritureId] || null : null }));
+  const nonRapprochees = lignes.filter(l => !l.ecriture);
+  // Solde de la banque attendu = solde comptable - écritures pas encore passées en banque
+  //                              + lignes du relevé pas encore comptabilisées.
+  const soldeBanqueAttendu = soldeComptable - suspens.reduce((s,e) => s + mvt(e), 0) + nonRapprochees.reduce((s,l) => s + l.montant, 0);
+  return { banque, lignes, suspens, nonRapprochees, soldeComptable, soldeBanqueAttendu,
+    ecart: releve.soldeFinalConnu ? Number(releve.soldeFinal) - soldeBanqueAttendu : null };
+}
+async function renderRapprochementAuto(imprimer){
+  const banques = await getAllSafe("banques");
+  const contenu = document.getElementById("content");
+  if (!banques.length){
+    contenu.innerHTML = `<h1 class="page-title">Rapprochement bancaire automatique</h1>
+      <div class="table-wrap"><div class="empty"><div class="big">🏦</div>Créez d'abord vos banques dans Trésorerie &gt; Banques.</div></div>`;
+    return;
+  }
+  if (!rapproBanque || !banques.some(b => b.nom === rapproBanque)) rapproBanque = banques[0].nom;
+  const releves = (await getAllSafe("relevesBancaires")).filter(r => r.banque === rapproBanque).sort((a,b) => (b.dateReleve||"").localeCompare(a.dateReleve||""));
+  if (!releves.some(r => r.id === rapproReleveId)) rapproReleveId = releves.length ? releves[0].id : null;
+  const releve = releves.find(r => r.id === rapproReleveId);
+  const sit = releve ? await situationReleve(releve) : null;
+  const badge = l => !l.ecriture ? `<span class="badge danger">Non rapprochée</span>`
+    : l.mode === "comptabilise" ? `<span class="badge ok">Comptabilisée</span>`
+    : `<span class="badge ok">Rapprochée${l.mode === "manuel" ? " (manuel)" : ""}</span>`;
+
+  if (imprimer === true && releve){
+    ouvrirImpression("État de rapprochement", `<h1>État de rapprochement bancaire — ${esc(releve.banque)}</h1>
+      <div class="sub">Relevé ${esc(releve.numero||"")} au ${fmtDateFr(releve.dateReleve)} — compte ${esc(sit.banque ? sit.banque.compte : "")}</div>
+      <table><tbody>
+        <tr><td>Solde comptable au ${fmtDateFr(releve.dateReleve)}</td><td class="n">${fmt(sit.soldeComptable)}</td></tr>
+        ${sit.suspens.map(e => `<tr><td>− ${esc(fmtDateFr(e.date))} ${esc(e.piece||"")} ${esc(e.libelle||"")} (non passé en banque)</td><td class="n">${fmt(-((Number(e.debit)||0)-(Number(e.credit)||0)))}</td></tr>`).join("")}
+        ${sit.nonRapprochees.map(l => `<tr><td>+ ${esc(fmtDateFr(l.date))} ${esc(l.libelle)} (non comptabilisé)</td><td class="n">${fmt(l.montant)}</td></tr>`).join("")}
+        <tr class="tot"><td>Solde bancaire attendu</td><td class="n">${fmt(sit.soldeBanqueAttendu)}</td></tr>
+        ${releve.soldeFinalConnu ? `<tr><td>Solde indiqué par la banque</td><td class="n">${fmt(releve.soldeFinal)}</td></tr>
+        <tr class="tot"><td>Écart</td><td class="n">${fmt(sit.ecart)}</td></tr>` : ""}
+      </tbody></table>`);
+    return;
+  }
+
+  const suspensOptions = (l) => sit.suspens.filter(e => Math.sign((Number(e.debit)||0)-(Number(e.credit)||0)) === Math.sign(l.montant))
+    .map(e => `<option value="${e.id}">${esc(fmtDateFr(e.date))} — ${esc(e.piece||"")} — ${esc((e.libelle||"").slice(0,40))} — ${fmt((Number(e.debit)||0)-(Number(e.credit)||0))}</option>`).join("");
+  contenu.innerHTML = `
+    <h1 class="page-title">Rapprochement bancaire automatique</h1>
+    <div class="page-sub">Importez le relevé de la banque (Excel ou CSV : colonnes Date, Libellé, Débit/Crédit ou Montant). Les lignes sont rapprochées des écritures du compte (même montant, date à ${RAPPRO_JOURS} jours près).</div>
+    <div class="toolbar" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <label style="font-size:12px; color:#5B6479;">Banque</label>
+      <select onchange="rapproBanque=this.value; rapproReleveId=null; renderRapprochementAuto()" style="width:auto;">
+        ${banques.map(b => `<option value="${esc(b.nom)}" ${b.nom===rapproBanque?"selected":""}>${esc(b.nom)} (${esc(b.compteOhada||"521")})</option>`).join("")}</select>
+      <button class="btn gold" onclick="choisirFichierReleve()">⬆️ Importer un relevé</button>
+      ${releves.length ? `<label style="font-size:12px; color:#5B6479;">Relevé</label>
+        <select onchange="rapproReleveId=Number(this.value); renderRapprochementAuto()" style="width:auto;">
+        ${releves.map(r => `<option value="${r.id}" ${r.id===rapproReleveId?"selected":""}>${esc(r.numero||"")} — ${fmtDateFr(r.dateReleve)} ${r.fichier ? "("+esc(r.fichier)+")" : ""}</option>`).join("")}</select>` : ""}
+      ${releve ? `<button class="btn small ghost" onclick="relancerRapprochement(${releve.id})">🔄 Relancer le rapprochement</button>
+        <button class="btn small ghost" onclick="renderRapprochementAuto(true)">🖨️ État de rapprochement</button>` : ""}
+    </div>
+    ${!releve ? `<div class="table-wrap"><div class="empty"><div class="big">🏦</div>Aucun relevé importé pour ${esc(rapproBanque)}.</div></div>` : `
+    <div class="kpis" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin:14px 0;">
+      ${kpiCard("Lignes rapprochées", (sit.lignes.length - sit.nonRapprochees.length) + " / " + sit.lignes.length, sit.nonRapprochees.length ? sit.nonRapprochees.length + " à traiter" : "Tout est rapproché")}
+      ${kpiCard("Solde comptable", fmt(sit.soldeComptable), "Au " + fmtDateFr(releve.dateReleve))}
+      ${kpiCard("Solde bancaire attendu", fmt(sit.soldeBanqueAttendu), sit.suspens.length + " écriture(s) en suspens")}
+      ${releve.soldeFinalConnu ? kpiCard("Écart avec la banque", fmt(sit.ecart), Math.abs(sit.ecart) < 0.5 ? "✅ Rapprochement équilibré" : "⚠️ À justifier") : ""}
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Libellé (banque)</th><th>Montant</th><th>Statut</th><th>Écriture liée</th><th>Actions</th></tr></thead>
+      <tbody>${sit.lignes.map(l => `<tr>
+        <td>${esc(fmtDateFr(l.date))}</td><td>${esc(l.libelle)}</td><td>${fmt(l.montant)}</td><td>${badge(l)}</td>
+        <td>${l.ecriture ? esc(fmtDateFr(l.ecriture.date)) + " — " + esc(l.ecriture.piece||"") + " — " + esc((l.ecriture.libelle||"").slice(0,40)) : ""}</td>
+        <td>${l.ecriture
+          ? `<button class="btn small ghost" onclick="annulerLigneReleve(${releve.id}, ${l.i})">Annuler</button>`
+          : `<button class="btn small" onclick="comptabiliserLigneReleve(${releve.id}, ${l.i})">Comptabiliser</button>
+             ${suspensOptions(l) ? `<select onchange="lierLigneReleve(${releve.id}, ${l.i}, this.value)" style="width:auto; max-width:260px;"><option value="">Rapprocher avec…</option>${suspensOptions(l)}</select>` : ""}`}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>
+    ${sit.suspens.length ? `<h3 style="margin:18px 0 8px;">Écritures en suspens (passées en comptabilité, pas encore sur le relevé)</h3>
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Pièce</th><th>Libellé</th><th>Montant</th></tr></thead><tbody>
+      ${sit.suspens.map(e => `<tr><td>${esc(fmtDateFr(e.date))}</td><td>${esc(e.piece||"")}</td><td>${esc(e.libelle||"")}</td><td>${fmt((Number(e.debit)||0)-(Number(e.credit)||0))}</td></tr>`).join("")}
+    </tbody></table></div>` : ""}`}`;
+}
+
+/* ---------------------------------------------------------
    PÉRIODE COMPTABLE (filtres du / au), utilitaires
    --------------------------------------------------------- */
 let periodeCompta = null;
@@ -4070,7 +4462,7 @@ async function renderDeclarationTva(imprimer){
 /* ---------------------------------------------------------
    CLÔTURE DE PÉRIODE (contrôle côté navigateur ; le serveur l'impose aussi)
    --------------------------------------------------------- */
-const DATE_PIECE = { factures:"date", avoirs:"date", facturesAchat:"date", stockEntrees:"date", stockSorties:"date", reglements:"date",
+const DATE_PIECE = { factures:"date", avoirs:"date", facturesAchat:"date", stockEntrees:"date", stockSorties:"date", reglements:"date", virementsInternes:"date",
   treso_caisse:"date", journal:"date", immobilisations:"dateAcquisition", paieCalcul:"periode" };
 function datePiece(storeKey, r){
   const f = DATE_PIECE[storeKey];

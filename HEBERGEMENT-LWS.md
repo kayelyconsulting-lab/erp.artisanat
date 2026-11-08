@@ -63,6 +63,18 @@ Toutes les clés émises restent listées dans la console.
 * **Journal :** « Saisir une pièce » sur plusieurs lignes ; une pièce déséquilibrée est refusée.
 * **Clients :** bouton « Relevé » (relevé de compte imprimable) ; factures avec le montant en lettres.
 
+## Trésorerie : plusieurs caisses et banques
+
+* **Caisses et banques :** chaque caisse et chaque banque reçoit son compte (5711, 5712… / 5211, 5212…), attribué automatiquement si le champ est laissé vide.
+* **Choix précis :** factures, règlements et tickets permettent de choisir la caisse ou la banque exacte. Sans choix, le compte général 571 ou 521 est utilisé.
+* **Virements internes :** Trésorerie → Virements internes (caisse → banque, banque → banque…).
+* **Soldes par caisse et banque :** solde initial + mouvements, compte par compte.
+* **Rapprochement bancaire automatique :**
+  * importez le relevé (Excel ou CSV : colonnes Date, Libellé, Débit/Crédit ou Montant) ;
+  * les lignes sont rapprochées des écritures (même montant, date à 7 jours près) ;
+  * les lignes restantes se comptabilisent (frais, agios…) ou se rapprochent à la main ;
+  * l'état de rapprochement est imprimable.
+
 ## Où sont les données ?
 
 Dans le dossier `kgpro-donnees/`, créé automatiquement hors de `htdocs` (sinon dans `donnees/`, protégé) :

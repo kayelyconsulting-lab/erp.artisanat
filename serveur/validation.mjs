@@ -111,6 +111,15 @@ export function validateRecord(mod, input, ctx){
         }
         break;
       }
+      case "tresoselect": {
+        // Caisse ou banque précise : doit exister parmi les caisses ou les banques.
+        if (typeof v !== "string" || v.length > LIMITS.text){ errors.push(`${label} : valeur invalide`); break; }
+        const unchanged = existing && existing[f.k] === v;
+        if (v !== "" && !unchanged && !ctx.lookup("caisses", "nom").has(v) && !ctx.lookup("banques", "nom").has(v)){
+          errors.push(`${label} : la caisse ou banque « ${v} » n'existe pas`);
+        }
+        break;
+      }
       case "image":
         if (typeof v !== "string" || (v !== "" && !IMAGE_RE.test(v))) errors.push(`${label} : image invalide`);
         else if (v.length > LIMITS.image) errors.push(`${label} : image trop volumineuse`);

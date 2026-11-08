@@ -109,6 +109,14 @@ function kgp_validate_record(array $mod, $input, array $ctx): array {
           $errors[] = "$label : « $v » n'existe pas";
         }
         break;
+      case 'tresoselect':
+        // Caisse ou banque précise : doit exister parmi les caisses ou les banques.
+        if (!is_string($v) || kgp_strlen($v) > KGP_LIMIT_TEXT){ $errors[] = "$label : valeur invalide"; break; }
+        $unchanged = $existing && ($existing[$f['k']] ?? null) === $v;
+        if ($v !== '' && !$unchanged && !isset(($ctx['lookup'])('caisses', 'nom')[$v]) && !isset(($ctx['lookup'])('banques', 'nom')[$v])){
+          $errors[] = "$label : la caisse ou banque « $v » n'existe pas";
+        }
+        break;
       case 'image':
         if (!is_string($v) || ($v !== '' && !preg_match(KGP_IMAGE_RE, $v))) $errors[] = "$label : image invalide";
         elseif (strlen($v) > KGP_LIMIT_IMAGE) $errors[] = "$label : image trop volumineuse";

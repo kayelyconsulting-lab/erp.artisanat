@@ -261,6 +261,38 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   assert.equal(Math.round(treso.parCompte.find(c => c.label === "Banques").value), Math.round(banqueAttendue));
   ok("trésorerie : caisse " + caisseAttendue + ", banques " + Math.round(banqueAttendue));
 
+  console.log("Plusieurs caisses et banques, virement interne, rapprochement bancaire");
+  await saveViaForm("banques", { nom: "SIB" });
+  await saveViaForm("banques", { nom: "Ecobank", soldeInit: 100000 });
+  const ct = await ev(() => comptesTresorerie());
+  assert.deepEqual(ct.map(c => c.nom + ":" + c.compte), ["Caisse principale:5711", "SIB:5211", "Ecobank:5212"], "comptes attribués automatiquement");
+  await saveViaForm("banques", { nom: "BOA", compteOhada: "5211" });
+  assert.match(await lastToast(), /déjà utilisé/); await ev(() => closeModal());
+  await saveViaForm("virementsInternes", { date: "2026-03-10", source: "Caisse principale", destination: "SIB", montant: 20000, motif: "Versement espèces" });
+  await saveViaForm("virementsInternes", { date: "2026-03-10", source: "SIB", destination: "SIB", montant: 1 });
+  assert.match(await lastToast(), /différentes/); await ev(() => closeModal());
+  await saveViaForm("treso_caisse", { date: "2026-03-11", caisse: "Ecobank", type: "Décaissement", motif: "Frais de tenue de compte", contrepartie: "631", montant: 2500 });
+  const st5 = await ev(() => computeSoldesTresorerie());
+  const solde = nom => Math.round(st5.find(l => l.nom === nom).solde);
+  assert.equal(solde("SIB"), 20000); assert.equal(solde("Ecobank"), 97500); assert.equal(solde("Caisse principale"), 30000);
+  const imp = await ev(async () => {
+    const rows = [["Relevé SIB mars 2026"], ["Date opération", "Libellé", "Débit", "Crédit"],
+      ["10/03/2026", "VERSEMENT ESPECES", "", "20 000"], ["31/03/2026", "AGIOS 1ER TRIMESTRE", "1 500", ""]];
+    const r = await importerReleve("SIB", lireLignesReleve(rows), { soldeFinal: 18500, fichier: "releve-sib.csv" });
+    return { id: r.releve.id, rapprochees: r.rapprochees, n: r.releve.lignes.length };
+  });
+  assert.deepEqual([imp.n, imp.rapprochees], [2, 1], "versement rapproché automatiquement, agios restants");
+  await ev(id => comptabiliserLigneReleve(id, 1, "6311"), imp.id);
+  const sit5 = await ev(async id => { const s = await situationReleve((await getAll("relevesBancaires")).find(r => r.id === id));
+    return { reste: s.nonRapprochees.length, ecart: s.ecart, compta: s.soldeComptable }; }, imp.id);
+  assert.deepEqual([sit5.reste, Math.round(sit5.ecart), Math.round(sit5.compta)], [0, 0, 18500], "rapprochement équilibré");
+  await ev(() => renderRoute("rapprochementAuto"));
+  assert.match(await page.textContent("#content"), /Comptabilisée/);
+  await ev(() => renderRoute("soldesTresorerie"));
+  assert.match(await page.textContent("#content"), /Ecobank/);
+  await assertEquilibre("après virement et rapprochement");
+  ok("comptes 5711/5211/5212, virement caisse → SIB, ticket sur Ecobank, relevé importé : 1 ligne rapprochée, agios comptabilisés, écart 0");
+
   console.log("États financiers, TVA, pièce comptable, impressions");
   const ef = await ev(async () => computeEtatsFinanciers(await getAll("journal"), "2026-01-01", "2026-12-31"));
   assert.ok(Math.abs(ef.bilan.ecart) < 0.01, "bilan équilibré, écart " + ef.bilan.ecart);

@@ -362,6 +362,11 @@
       "Banque"
      ],
      "def": "Caisse"
+    },
+    {
+     "k": "compteTreso",
+     "l": "Caisse ou banque précise (facultatif)",
+     "t": "tresoselect"
     }
    ],
    "cols": [
@@ -814,6 +819,11 @@
       "Banque"
      ],
      "def": "Caisse"
+    },
+    {
+     "k": "compteTreso",
+     "l": "Caisse ou banque précise (facultatif)",
+     "t": "tresoselect"
     }
    ],
    "cols": [
@@ -934,6 +944,11 @@
      "req": 1
     },
     {
+     "k": "compteTreso",
+     "l": "Caisse ou banque précise (facultatif)",
+     "t": "tresoselect"
+    },
+    {
      "k": "moyen",
      "l": "Moyen de paiement",
      "t": "select",
@@ -966,6 +981,7 @@
   "banques": {
    "key": "banques",
    "label": "Banques",
+   "special": "compteTreso",
    "fields": [
     {
      "k": "nom",
@@ -985,7 +1001,7 @@
     },
     {
      "k": "compteOhada",
-     "l": "Compte OHADA lié",
+     "l": "Compte OHADA lié (vide = attribué automatiquement : 5211, 5212...)",
      "t": "text"
     },
     {
@@ -1005,6 +1021,7 @@
   "caisses": {
    "key": "caisses",
    "label": "Caisses",
+   "special": "compteTreso",
    "fields": [
     {
      "k": "nom",
@@ -1019,7 +1036,7 @@
     },
     {
      "k": "compteOhada",
-     "l": "Compte OHADA (571x)",
+     "l": "Compte OHADA (vide = attribué automatiquement : 5711, 5712...)",
      "t": "text"
     },
     {
@@ -1038,7 +1055,7 @@
   },
   "treso_caisse": {
    "key": "treso_caisse",
-   "label": "Caisse (tickets)",
+   "label": "Tickets de caisse / banque",
    "special": "treso",
    "compte": "571",
    "fields": [
@@ -1047,6 +1064,11 @@
      "l": "Date",
      "t": "date",
      "req": 1
+    },
+    {
+     "k": "caisse",
+     "l": "Caisse ou banque (vide = caisse générale 571)",
+     "t": "tresoselect"
     },
     {
      "k": "type",
@@ -1096,6 +1118,7 @@
    "cols": [
     "numero",
     "date",
+    "caisse",
     "type",
     "motif",
     "tiers",
@@ -1104,9 +1127,92 @@
    ],
    "section": "tresorerie"
   },
+  "virementsInternes": {
+   "key": "virementsInternes",
+   "label": "Virements internes",
+   "special": "virement",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "source",
+     "l": "Depuis (caisse ou banque)",
+     "t": "tresoselect",
+     "req": 1
+    },
+    {
+     "k": "destination",
+     "l": "Vers (caisse ou banque)",
+     "t": "tresoselect",
+     "req": 1
+    },
+    {
+     "k": "montant",
+     "l": "Montant",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "motif",
+     "l": "Motif",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "source",
+    "destination",
+    "montant",
+    "motif"
+   ],
+   "section": "tresorerie"
+  },
+  "relevesBancaires": {
+   "key": "relevesBancaires",
+   "label": "Relevés bancaires importés",
+   "fields": [
+    {
+     "k": "banque",
+     "l": "Banque",
+     "t": "dynselect",
+     "source": "banques",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "dateReleve",
+     "l": "Date du relevé",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "soldeFinal",
+     "l": "Solde final indiqué par la banque",
+     "t": "number"
+    },
+    {
+     "k": "fichier",
+     "l": "Fichier importé",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "numero",
+    "banque",
+    "dateReleve",
+    "soldeFinal",
+    "fichier"
+   ],
+   "section": "tresorerie"
+  },
   "rapprochement": {
    "key": "rapprochement",
-   "label": "Rapprochement bancaire",
+   "label": "Rapprochement (saisie manuelle)",
    "fields": [
     {
      "k": "banque",
@@ -1966,6 +2072,8 @@
   "treso_nsia": "TK-NSIA",
   "immobilisations": "IMMO",
   "facturesAchat": "FA-ACH",
-  "reglements": "RG"
+  "reglements": "RG",
+  "virementsInternes": "VI",
+  "relevesBancaires": "REL"
  }
 }
