@@ -361,6 +361,10 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   await p3.route("**/*", async r => {
     const u = r.request().url();
     if (!u.startsWith(R)) return r.abort();
+    if (u.includes("/api/data/articles") && !p3.__coupure){                          // coupure passagère
+      p3.__coupure = true;
+      return r.fulfill({ status: 502, contentType: "text/html", body: "Bad Gateway" });
+    }
     if (u.includes("/api/me")){                                                     // réponse lente
       const reponse = await r.fetch();
       await new Promise(res => setTimeout(res, 3000));
@@ -376,6 +380,10 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   assert.equal(await p3.evaluate(() => currentUser && currentUser.role), "Administrateur", "toujours connecté");
   assert.ok(await p3.evaluate(() => document.getElementById("app").classList.contains("show")), "application toujours affichée");
   ok("connexion maintenue malgré la réponse tardive de la vérification d'ouverture");
+  p3.__coupure = false;
+  assert.ok((await p3.evaluate(async () => (await getAll("articles")).length)) > 0, "lecture réussie après une erreur 502 passagère");
+  assert.ok(p3.__coupure, "la coupure a bien été simulée");
+  ok("lecture réessayée automatiquement après une coupure 502");
 
   assert.deepEqual(errors, [], "aucune erreur JavaScript");
   ok("aucune erreur JavaScript");

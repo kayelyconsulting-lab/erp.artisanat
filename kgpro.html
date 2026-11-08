@@ -1429,11 +1429,23 @@ let kgpSessionGeneration = 0;
 async function kgpApi(method, url, body, options){
   const generation = kgpSessionGeneration;
   url = KGP_API_BASE + url.replace(/^\//, "");
-  const res = await fetch(url, {
+  const envoyer = () => fetch(url, {
     method, credentials:"same-origin",
     headers: body !== undefined ? { "Content-Type":"application/json" } : {},
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  // Lectures (GET) : sur une coupure passagère (réseau perdu, passerelle 502/503/504),
+  // on réessaie deux fois. Les écritures ne sont jamais renvoyées (pas de doublon).
+  let res = null;
+  for (let essai = 0; ; essai++){
+    try{
+      res = await envoyer();
+      if (method !== "GET" || ![502, 503, 504].includes(res.status) || essai >= 2) break;
+    }catch(e){
+      if (method !== "GET" || essai >= 2) throw new Error("Connexion au serveur impossible : vérifiez votre accès à Internet.");
+    }
+    await new Promise(r => setTimeout(r, 600 * (essai + 1)));
+  }
   let data = null;
   try{ data = await res.json(); }catch(e){}
   if (!res.ok){
