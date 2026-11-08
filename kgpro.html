@@ -372,6 +372,11 @@ tbody tr:hover{background:#F8FAFD;}
         <input id="loginPass" type="password" placeholder="Code secret" autocomplete="current-password"
           data-act="attemptLogin" data-on="enter">
       </div>
+      <div class="login-field" id="loginCodeField" style="display:none;">
+        <span class="ic">📱</span>
+        <input id="loginCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+          placeholder="Code à 6 chiffres (application d'authentification)" data-act="attemptLogin" data-on="enter">
+      </div>
       <button class="btn gold" data-act="attemptLogin">Se connecter</button>
       <div class="login-hint">Accès réservé aux collaborateurs autorisés de KAYELY GESTION PRO.</div>
     </div>
@@ -463,6 +468,7 @@ const SECTIONS = [
           {k:"dateExpiration",l:"Accès valable jusqu'au (laisser vide = illimité)",t:"date"} ],
         cols:["nom","prenom","login","role","statut","dateExpiration"] },
       { key:"journalActivite", adminOnly:true, label:"Journal d'activité", readonly:"audit" },
+      { key:"deuxFacteurs", label:"Double authentification (2FA)", readonly:"deuxFacteurs" },
       { key:"paiementConfig", adminOnly:true, label:"Paiement en ligne (CinetPay)", readonly:"paiementConfig" },
       { key:"taxes", adminOnly:true, label:"Taxes", fields:[
           {k:"libelle",l:"Libellé",t:"text",req:1},
@@ -1698,6 +1704,7 @@ async function renderRoute(moduleKey){
   if (entry.mod.readonly === "soldesTreso") return renderSoldesTresorerie();
   if (entry.mod.readonly === "liasse") return renderLiasse();
   if (entry.mod.readonly === "audit") return renderJournalActivite();
+  if (entry.mod.readonly === "deuxFacteurs") return renderDeuxFacteurs();
   if (entry.mod.readonly === "paiementConfig") return renderPaiementConfig();
   if (entry.mod.readonly === "rapprochementAuto") return renderRapprochementAuto();
   if (entry.mod.single) return renderSingleForm(entry.mod);
@@ -4667,6 +4674,85 @@ async function renderJournalActivite(){
 }
 
 /* ---------------------------------------------------------
+   DOUBLE AUTHENTIFICATION (2FA / TOTP)
+   --------------------------------------------------------- */
+let deuxFacteursSecret = null;   // secret en cours d'activation (jamais conservé)
+async function renderDeuxFacteurs(){
+  const c = document.getElementById("content");
+  if (!KGP_SERVER){
+    c.innerHTML = `<h1 class="page-title">Double authentification</h1><div class="table-wrap"><div class="empty">Disponible uniquement en mode serveur (installation en ligne).</div></div>`;
+    return;
+  }
+  deuxFacteursSecret = null;
+  let actif = false;
+  try{ actif = (await kgpApi("GET", "/api/2fa/status")).actif; }catch(e){}
+  let admins = "";
+  if (isAdmin()){
+    const users = (await getAllSafe("utilisateurs")).filter(u => u.totpActif && u.id !== (currentUser && currentUser.id));
+    admins = `<div class="card" style="max-width:640px; margin-top:16px;">
+      <h3 style="margin:0 0 8px;">Réinitialiser pour un collaborateur</h3>
+      <p style="font-size:13px; color:#5B6479;">Si un collaborateur perd son téléphone, réinitialisez sa double authentification : il pourra se reconnecter avec son seul code secret, puis la réactiver.</p>
+      ${users.length ? users.map(u => `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid #eee;">
+        <span>${esc(u.nom||u.login)} <span style="color:#888;">(${esc(u.login)})</span></span>
+        <button class="btn small ghost" data-act="reset2faUtilisateur" data-a="${esc(JSON.stringify([u.id, u.login]))}">Réinitialiser</button></div>`).join("")
+        : `<div class="empty">Aucun collaborateur n'a activé la double authentification.</div>`}
+    </div>`;
+  }
+  c.innerHTML = `<h1 class="page-title">Double authentification</h1>
+    <div class="page-sub">Ajoutez un code à usage unique (application d'authentification) en plus de votre code secret. ${actif ? `<span class="badge success">Activée</span>` : `<span class="badge danger">Désactivée</span>`}</div>
+    <div class="card" style="max-width:640px;">
+      ${actif ? `<p>Votre compte est protégé par la double authentification.</p>
+        <label>Pour la désactiver, saisissez un code de votre application :</label>
+        <input id="df_code" type="text" inputmode="numeric" maxlength="6" placeholder="Code à 6 chiffres">
+        <div style="margin-top:12px;"><button class="btn danger" data-act="desactiver2fa">Désactiver</button></div>`
+      : `<p style="font-size:13px; color:#5B6479;">Installez une application comme Google Authenticator, Authy ou FreeOTP sur votre téléphone, puis activez la double authentification.</p>
+        <div id="df_zone"><button class="btn gold" data-act="activer2fa">Activer la double authentification</button></div>`}
+    </div>
+    ${admins}`;
+}
+async function activer2fa(){
+  try{
+    const r = await kgpApi("POST", "/api/2fa/start", {});
+    deuxFacteursSecret = r.secret;
+    const groupes = (r.secret.match(/.{1,4}/g) || []).join(" ");
+    document.getElementById("df_zone").innerHTML = `
+      <p>1. Dans votre application d'authentification, ajoutez un compte en saisissant cette clé (ou le lien ci-dessous) :</p>
+      <div style="font-family:monospace; font-size:16px; letter-spacing:1px; background:#F4F6FA; padding:10px; border-radius:6px; word-break:break-all;">${esc(groupes)}</div>
+      <p style="font-size:12px; color:#5B6479; word-break:break-all;">Lien : <code>${esc(r.otpauth)}</code></p>
+      <p>2. Saisissez ensuite le code à 6 chiffres affiché par l'application :</p>
+      <input id="df_code" type="text" inputmode="numeric" maxlength="6" placeholder="Code à 6 chiffres">
+      <div style="margin-top:12px;"><button class="btn gold" data-act="confirmer2fa">Confirmer et activer</button></div>`;
+    document.getElementById("df_code").focus();
+  }catch(e){ toast(e.message || "Activation impossible"); }
+}
+async function confirmer2fa(){
+  const code = (document.getElementById("df_code").value || "").trim();
+  try{
+    await kgpApi("POST", "/api/2fa/activate", { code });
+    toast("Double authentification activée");
+    if (currentUser) currentUser.totpActif = true;
+    renderDeuxFacteurs();
+  }catch(e){ toast(e.message || "Code incorrect"); }
+}
+async function desactiver2fa(){
+  const code = (document.getElementById("df_code").value || "").trim();
+  try{
+    await kgpApi("POST", "/api/2fa/disable", { code });
+    toast("Double authentification désactivée");
+    if (currentUser) currentUser.totpActif = false;
+    renderDeuxFacteurs();
+  }catch(e){ toast(e.message || "Code incorrect"); }
+}
+async function reset2faUtilisateur(id, login){
+  if (!confirm("Réinitialiser la double authentification de « "+login+" » ?")) return;
+  try{
+    await kgpApi("POST", "/api/2fa/reset/"+Number(id), {});
+    toast("Double authentification réinitialisée pour "+login);
+    renderDeuxFacteurs();
+  }catch(e){ toast(e.message || "Réinitialisation impossible"); }
+}
+
+/* ---------------------------------------------------------
    PAIEMENT EN LIGNE (CinetPay) — configuration et lien de paiement
    --------------------------------------------------------- */
 async function renderPaiementConfig(){
@@ -5934,6 +6020,8 @@ function showLogin(garderSaisie){
   document.getElementById("loginCard").style.display = "";
   document.getElementById("loginError").classList.remove("show");
   const u = document.getElementById("loginUser"); const p = document.getElementById("loginPass");
+  const cf = document.getElementById("loginCodeField"), c = document.getElementById("loginCode");
+  if (cf) cf.style.display = "none"; if (c) c.value = "";   // étape 2FA réinitialisée
   // Au démarrage, on ne vide pas ce que l'utilisateur a pu déjà taper pendant le chargement.
   if (!garderSaisie){ if (u) u.value = ""; if (p) p.value = ""; }
   setTimeout(()=>{ if (u && !u.value) u.focus(); }, 50);
@@ -6031,14 +6119,24 @@ async function attemptLogin(){
     return;
   }
   if (KGP_SERVER){
+    const codeVal = (document.getElementById("loginCode").value || "").trim();
+    let r;
     try{
-      const r = await kgpApi("POST", "/api/login", { login: loginVal, password: passVal });
-      currentUser = r.user; kgpSessionGeneration++;
+      r = await kgpApi("POST", "/api/login", { login: loginVal, password: passVal, code: codeVal });
     }catch(e){
       errBox.textContent = e.message;
       errBox.classList.add("show");
       return;
     }
+    // Double authentification : le serveur demande le code à usage unique.
+    if (r && r.needsTotp){
+      document.getElementById("loginCodeField").style.display = "";
+      const c = document.getElementById("loginCode");
+      if (codeVal){ errBox.textContent = "Code à deux facteurs incorrect ou expiré."; errBox.classList.add("show"); }
+      c.focus();
+      return;
+    }
+    currentUser = r.user; kgpSessionGeneration++;
     if (currentUser.doitChangerMotDePasse){ showSetup("change"); return; }
     await kgpAfterServerLogin();
     return;

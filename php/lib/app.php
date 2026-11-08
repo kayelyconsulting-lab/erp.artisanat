@@ -6,6 +6,7 @@ require __DIR__ . '/validation.php';
 require __DIR__ . '/montants.php';
 require __DIR__ . '/comptabilisation.php';
 require __DIR__ . '/paiement.php';
+require __DIR__ . '/totp.php';
 
 // Jamais de détail technique dans les réponses (chemins, traces) : tout part dans le
 // journal du serveur, sans les arguments des fonctions (codes secrets, fiches...).
@@ -182,7 +183,9 @@ function kgp_module(string $store): array {
 
 function kgp_public_user(?array $u): ?array {
   if (!$u) return null;
-  unset($u['motDePasseHash']); $u['motDePasse'] = ''; return $u;
+  $actif = !empty($u['totpActif']);
+  unset($u['motDePasseHash'], $u['totpSecret'], $u['totpPending']);
+  $u['motDePasse'] = ''; $u['totpActif'] = $actif; return $u;
 }
 function kgp_is_expired(array $u): bool {
   $d = $u['dateExpiration'] ?? '';
@@ -384,6 +387,10 @@ function kgp_save(array $user, string $store, $input, string $sessionHash, ?arra
     if ($mod['key'] === 'utilisateurs'){
       $other = kgp_find_by_login($record['login']);
       if ($other && $other['id'] !== $id) throw new ValidationError(["L'identifiant « {$record['login']} » est déjà utilisé"]);
+      // Champs de double authentification : jamais fixés par une fiche, conservés tels quels.
+      $record['totpActif'] = !empty($existing['totpActif']);
+      if (isset($existing['totpSecret'])) $record['totpSecret'] = $existing['totpSecret']; else unset($record['totpSecret']);
+      if (isset($existing['totpPending'])) $record['totpPending'] = $existing['totpPending']; else unset($record['totpPending']);
       $pw = $input['motDePasse'] ?? '';
       if ($pw !== '' && $pw !== null){
         if ($p = kgp_password_problem($pw)) throw new ValidationError([$p]);
@@ -582,6 +589,15 @@ function kgp_handle_api(string $p): void {
       if (($user['statut'] ?? 'Actif') !== 'Actif') throw new HttpError(403, "Ce compte est désactivé. Contactez l'administrateur.");
       if (kgp_is_expired($user)) throw new HttpError(403, "Votre durée d'accès a expiré. Contactez l'administrateur.");
       kgp_login_reset($key);
+      // Double authentification : si active, un code à usage unique est exigé en plus du code secret.
+      if (!empty($user['totpActif'])){
+        $code = $b['code'] ?? '';
+        if ($code === '' || $code === null){ kgp_send(['needsTotp' => true]); return; }
+        if (!kgp_totp_verify($user['totpSecret'] ?? null, $code)){
+          kgp_login_fail($key); kgp_login_fail($keyIp); kgp_audit($user['id'], 'login-echec-2fa');
+          throw new HttpError(401, "Code d'authentification à deux facteurs incorrect.");
+        }
+      }
       if (in_array($password, KGP_LEGACY_PASSWORDS, true) && empty($user['doitChangerMotDePasse'])){
         $user['doitChangerMotDePasse'] = true; kgp_put('utilisateurs', $user['id'], $user, $user['id']);
       }
@@ -647,6 +663,40 @@ function kgp_handle_api(string $p): void {
       }
       kgp_send(['ids' => $ids]);
       return;
+    }
+    // Double authentification (TOTP) : activation, désactivation, réinitialisation par l'admin.
+    if ($p === '/api/2fa/status' && $method === 'GET'){ kgp_send(['actif' => !empty($user['totpActif'])]); return; }
+    if ($p === '/api/2fa/start' && $method === 'POST'){
+      $secret = kgp_totp_secret();
+      $u = kgp_get('utilisateurs', $user['id']); $u['totpPending'] = $secret; unset($u['id']);
+      kgp_put('utilisateurs', $user['id'], $u, $user['id']);
+      $soc = kgp_get('societe', 1);
+      kgp_send(['secret' => $secret, 'otpauth' => kgp_otpauth_uri($secret, (string)$user['login'], (string)($soc['raison'] ?? 'KAYELY GESTION PRO'))]);
+      return;
+    }
+    if ($p === '/api/2fa/activate' && $method === 'POST'){
+      $u = kgp_get('utilisateurs', $user['id']);
+      if (empty($u['totpPending'])) throw new ValidationError(['Commencez par générer un secret (Activer).']);
+      if (!kgp_totp_verify($u['totpPending'], kgp_body()['code'] ?? '')) throw new HttpError(401, "Code incorrect. Vérifiez l'heure de votre téléphone et réessayez.");
+      $u['totpSecret'] = $u['totpPending']; $u['totpActif'] = true; unset($u['totpPending'], $u['id']);
+      kgp_put('utilisateurs', $user['id'], $u, $user['id']);
+      kgp_send(['actif' => true]); return;
+    }
+    if ($p === '/api/2fa/disable' && $method === 'POST'){
+      $u = kgp_get('utilisateurs', $user['id']);
+      if (!empty($u['totpActif']) && !kgp_totp_verify($u['totpSecret'] ?? null, kgp_body()['code'] ?? '')) throw new HttpError(401, 'Code incorrect.');
+      unset($u['totpSecret'], $u['totpPending'], $u['id']); $u['totpActif'] = false;
+      kgp_put('utilisateurs', $user['id'], $u, $user['id']);
+      kgp_send(['actif' => false]); return;
+    }
+    if ($method === 'POST' && preg_match('#^/api/2fa/reset/(\d+)$#', $p, $m)){
+      if (!kgp_is_admin($user)) throw new HttpError(403, "Réinitialisation réservée à l'administrateur.");
+      $t = kgp_get('utilisateurs', (int)$m[1]);
+      if (!$t) throw new HttpError(404, 'Utilisateur introuvable');
+      $tid = $t['id']; unset($t['totpSecret'], $t['totpPending'], $t['id']); $t['totpActif'] = false;
+      kgp_put('utilisateurs', $tid, $t, $user['id']);
+      kgp_audit($user['id'], '2fa-reset', 'utilisateurs', $tid);
+      kgp_send(['actif' => false]); return;
     }
     // Paiement en ligne : configuration (admin) et ouverture d'un paiement pour une facture.
     if ($p === '/api/paiement/config'){

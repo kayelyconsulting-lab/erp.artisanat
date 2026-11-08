@@ -169,7 +169,7 @@ export function validateRecord(mod, input, ctx){
   // Champs hors schéma ajoutés par l'application (numero, factureRef, auto, planAmortissement...).
   for (const [k, v] of Object.entries(input)){
     if (k === "id" || declared.has(k) || (mod.hasLignes && k === "lignes")) continue;
-    if (k === "motDePasseHash") { errors.push("Champ interdit : motDePasseHash"); continue; }
+    if (k === "motDePasseHash" || k === "totpSecret" || k === "totpPending") { errors.push(`Champ interdit : ${k}`); continue; }
     if (!KEY_RE.test(k) || FORBIDDEN_KEYS.has(k)){ errors.push(`Nom de champ invalide : ${k.slice(0, 40)}`); continue; }
     checkExtra(v, k, 1, errors);
     out[k] = typeof v === "string" ? v.trim() : v;

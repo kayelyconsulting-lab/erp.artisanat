@@ -169,7 +169,7 @@ function kgp_validate_record(array $mod, $input, array $ctx): array {
   foreach ($input as $k => $v){
     $k = (string)$k;
     if ($k === 'id' || isset($declared[$k]) || (!empty($mod['hasLignes']) && $k === 'lignes')) continue;
-    if ($k === 'motDePasseHash'){ $errors[] = 'Champ interdit : motDePasseHash'; continue; }
+    if ($k === 'motDePasseHash' || $k === 'totpSecret' || $k === 'totpPending'){ $errors[] = "Champ interdit : $k"; continue; }
     if (!preg_match(KGP_KEY_RE, $k) || in_array($k, KGP_FORBIDDEN_KEYS, true)){ $errors[] = 'Nom de champ invalide : ' . substr($k, 0, 40); continue; }
     kgp_check_extra($v, $k, 1, $errors);
     $out[$k] = is_string($v) ? trim($v) : $v;

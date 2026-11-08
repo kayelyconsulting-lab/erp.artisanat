@@ -12,6 +12,7 @@ import { loadSchema } from "./schema.mjs";
 import { validateRecord, ValidationError } from "./validation.mjs";
 import { appliquerMontants, MODULES_MONTANTS } from "./montants.mjs";
 import { comptabiliser, supprimerComptabilisation, blocageSuppression, posterDotation, MODULES_COMPTA } from "./comptabilisation.mjs";
+import { generateSecret, totpVerify, otpauthUri } from "./totp.mjs";
 import { openDatabase } from "./db.mjs";
 import {
   hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, LEGACY_DEFAULT_PASSWORDS,
@@ -62,7 +63,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
   }
 
   /* ---------- utilisateurs ---------- */
-  const publicUser = u => { if (!u) return null; const { motDePasseHash, ...rest } = u; return { ...rest, motDePasse: "" }; };
+  const publicUser = u => { if (!u) return null; const { motDePasseHash, totpSecret, totpPending, ...rest } = u; return { ...rest, motDePasse: "", totpActif: !!u.totpActif }; };
   const isExpired = u => {
     if (!u.dateExpiration) return false;
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -209,6 +210,11 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
       if (mod.key === "utilisateurs"){
         const other = findByLogin(record.login);
         if (other && other.id !== id) throw new ValidationError([`L'identifiant « ${record.login} » est déjà utilisé`]);
+        // Les champs de double authentification ne sont jamais fixés par une fiche : ils ne changent
+        // que via les routes /api/2fa, et sont conservés tels quels lors d'une modification de fiche.
+        record.totpSecret = existing ? existing.totpSecret : undefined;
+        record.totpActif = existing ? !!existing.totpActif : false;
+        record.totpPending = existing ? existing.totpPending : undefined;
         const pw = input.motDePasse;
         if (pw){
           const problem = passwordProblem(pw);
@@ -383,7 +389,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
     }
 
     if (p === "/api/login" && m === "POST"){
-      const { login, password } = await readBody(req);
+      const { login, password, code } = await readBody(req);
       const ip = req.socket.remoteAddress || "";
       const key = ip + "|" + String(login || "").toLowerCase(), keyIp = "ip|" + ip;
       const user = findByLogin(login);
@@ -396,6 +402,15 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
       if ((user.statut || "Actif") !== "Actif") throw new HttpError(403, "Ce compte est désactivé. Contactez l'administrateur.");
       if (isExpired(user)) throw new HttpError(403, "Votre durée d'accès a expiré. Contactez l'administrateur.");
       limiter.reset(key);
+      // Double authentification : si elle est active, un code à usage unique est exigé en plus du code secret.
+      if (user.totpActif){
+        if (!code) return send(res, 200, { needsTotp: true });
+        if (!totpVerify(user.totpSecret, code)){
+          limiter.fail(key); limiterIp.fail(keyIp);
+          db.audit(user.id, "login-echec-2fa", null, null);
+          throw new HttpError(401, "Code d'authentification à deux facteurs incorrect.");
+        }
+      }
       if (LEGACY_DEFAULT_PASSWORDS.includes(password) && !user.doitChangerMotDePasse){
         user.doitChangerMotDePasse = true;
         db.put("utilisateurs", user.id, user, user.id);
@@ -452,6 +467,38 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
         catch (e){ if (e instanceof ValidationError) e.message = `Fiche ${i + 1} : ${e.message}`; throw e; }
       });
       return send(res, 200, { ids });
+    }
+    // Double authentification (TOTP) : activation, désactivation, réinitialisation par l'admin.
+    if (p === "/api/2fa/status" && m === "GET") return send(res, 200, { actif: !!user.totpActif });
+    if (p === "/api/2fa/start" && m === "POST"){
+      const secret = generateSecret();
+      db.put("utilisateurs", user.id, { ...db.get("utilisateurs", user.id), totpPending: secret }, user.id);
+      const soc = db.get("societe", 1);
+      return send(res, 200, { secret, otpauth: otpauthUri(secret, user.login, (soc && soc.raison) || "KAYELY GESTION PRO") });
+    }
+    if (p === "/api/2fa/activate" && m === "POST"){
+      const { code } = await readBody(req);
+      const u = db.get("utilisateurs", user.id);
+      if (!u.totpPending) throw new ValidationError(["Commencez par générer un secret (Activer)."]);
+      if (!totpVerify(u.totpPending, code)) throw new HttpError(401, "Code incorrect. Vérifiez l'heure de votre téléphone et réessayez.");
+      db.put("utilisateurs", u.id, { ...u, totpSecret: u.totpPending, totpActif: true, totpPending: undefined }, u.id);
+      return send(res, 200, { actif: true });
+    }
+    if (p === "/api/2fa/disable" && m === "POST"){
+      const { code } = await readBody(req);
+      const u = db.get("utilisateurs", user.id);
+      if (u.totpActif && !totpVerify(u.totpSecret, code)) throw new HttpError(401, "Code incorrect.");
+      db.put("utilisateurs", u.id, { ...u, totpSecret: undefined, totpActif: false, totpPending: undefined }, u.id);
+      return send(res, 200, { actif: false });
+    }
+    const reset2fa = /^\/api\/2fa\/reset\/(\d+)$/.exec(p);
+    if (reset2fa && m === "POST"){
+      if (!isAdmin(user)) throw new HttpError(403, "Réinitialisation réservée à l'administrateur.");
+      const target = db.get("utilisateurs", Number(reset2fa[1]));
+      if (!target) throw new HttpError(404, "Utilisateur introuvable");
+      db.put("utilisateurs", target.id, { ...target, totpSecret: undefined, totpActif: false, totpPending: undefined }, user.id);
+      db.audit(user.id, "2fa-reset", "utilisateurs", target.id);
+      return send(res, 200, { actif: false });
     }
     // Dotation annuelle d'amortissement d'une immobilisation : comptabilisée par le serveur.
     const dot = /^\/api\/immobilisations\/(\d+)\/dotation\/(\d{4})$/.exec(p);

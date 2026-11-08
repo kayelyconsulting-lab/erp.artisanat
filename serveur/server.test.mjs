@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { createApp } from "./server.mjs";
 import { cinetpayToken, cinetpaySignatureValide } from "./paiement.mjs";
+import { totpCode } from "./totp.mjs";
 
 let server, base;
 before(async () => {
@@ -200,6 +201,42 @@ test("signature des notifications de paiement (CinetPay HMAC)", () => {
   assert.ok(!cinetpaySignatureValide(post, "00" + attendu.slice(2), "secret-test-123"), "jeton falsifié refusé");
   assert.ok(!cinetpaySignatureValide(post, attendu, "autre-secret"), "mauvaise clé refusée");
   assert.ok(!cinetpaySignatureValide({ ...post, cpm_amount: "9999" }, attendu, "secret-test-123"), "montant modifié refusé");
+});
+
+test("double authentification (2FA / TOTP)", async () => {
+  // Node et PHP calculent le même code pour un secret et un instant donnés (vecteur de référence).
+  assert.equal(totpCode("JBSWY3DPEHPK3PXP", 1700000000000), "324550");
+
+  // Cycle complet : activation, connexion exigeant le code, mauvais code refusé, désactivation.
+  assert.equal((await admin("PUT", "/api/data/utilisateurs", { nom: "Deux Facteurs", login: "twofa", motDePasse: "Initial-2026", role: "Comptable", statut: "Actif", dateExpiration: "" })).status, 200);
+  const u = client();
+  await u("POST", "/api/login", { login: "twofa", password: "Initial-2026" });
+  await u("POST", "/api/password", { password: "Twofa-Perso-2026" });
+  assert.equal((await u("GET", "/api/2fa/status")).data.actif, false);
+  const secret = (await u("POST", "/api/2fa/start", {})).data.secret;
+  assert.match(secret, /^[A-Z2-7]{32}$/);
+  // un code invalide n'active pas
+  assert.equal((await u("POST", "/api/2fa/activate", { code: "000000" })).status, 401);
+  assert.equal((await u("POST", "/api/2fa/activate", { code: totpCode(secret) })).data.actif, true);
+  // le secret n'est jamais renvoyé dans la fiche utilisateur
+  const fiche = (await admin("GET", "/api/data/utilisateurs")).data.find(x => x.login === "twofa");
+  assert.equal(fiche.totpActif, true); assert.equal(fiche.totpSecret, undefined); assert.equal(fiche.totpPending, undefined);
+
+  // Connexion : le code secret seul ne suffit plus
+  const c2 = client();
+  const sansCode = await c2("POST", "/api/login", { login: "twofa", password: "Twofa-Perso-2026" });
+  assert.equal(sansCode.data.needsTotp, true); assert.equal(sansCode.data.user, undefined);
+  assert.equal((await c2("POST", "/api/login", { login: "twofa", password: "Twofa-Perso-2026", code: "123456" })).status, 401);
+  const ok = await c2("POST", "/api/login", { login: "twofa", password: "Twofa-Perso-2026", code: totpCode(secret) });
+  assert.equal(ok.status, 200); assert.equal(ok.data.user.login, "twofa");
+
+  // L'administrateur peut réinitialiser (perte du téléphone) ; ensuite le code secret seul suffit
+  assert.equal((await admin("POST", "/api/2fa/reset/" + fiche.id, {})).data.actif, false);
+  assert.equal((await client()("POST", "/api/login", { login: "twofa", password: "Twofa-Perso-2026" })).data.user.login, "twofa");
+  // Un non-admin ne peut pas réinitialiser autrui
+  assert.equal((await u("POST", "/api/2fa/reset/1", {})).status, 403);
+  // Champs 2FA interdits à l'écriture directe d'une fiche
+  assert.equal((await admin("PUT", "/api/data/utilisateurs", { ...fiche, totpSecret: "PIRATE" })).status, 422);
 });
 
 test("droits par rôle", async () => {
