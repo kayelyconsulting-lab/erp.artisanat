@@ -1,0 +1,567 @@
+#!/usr/bin/env node
+// Test de bout en bout de l'ERP dans un navigateur (Playwright), sur la version PHP
+// multi-sociétés (php -S). Vérifie la cohérence comptable après chaque opération.
+//   node serveur/e2e-erp.cjs
+const { chromium } = require("playwright");
+const { spawn, spawnSync } = require("child_process");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const assert = require("assert/strict");
+
+// Mode distant : KGP_E2E_URL=https://erp.exemple.com/<code-société> (société NEUVE, créée
+// dans la console et jamais ouverte : le test crée son administrateur et des données d'essai).
+const REMOTE = process.env.KGP_E2E_URL ? process.env.KGP_E2E_URL.replace(/\/+$/, "") : "";
+const ROOT = path.resolve(__dirname, "..");
+const data = fs.mkdtempSync(path.join(os.tmpdir(), "kgp-e2e-"));
+const port = 19000 + Math.floor(Math.random() * 900);
+const R = REMOTE ? new URL(REMOTE).origin : `http://127.0.0.1:${port}`;
+const SOCIETE_PATH = REMOTE ? new URL(REMOTE).pathname : "/demo";
+let php = { kill(){} };
+if (!REMOTE){
+  fs.copyFileSync(path.join(ROOT, "kgpro.html"), path.join(ROOT, "php", "lib", "kgpro.html"));
+  const logFd = fs.openSync(path.join(data, "php.log"), "a");
+  php = spawn("php", ["-S", `127.0.0.1:${port}`, path.join(ROOT, "php", "dev-router.php")],
+    { env: { ...process.env, KGP_DATA_DIR: data, PHP_CLI_SERVER_WORKERS: "6" }, stdio: ["ignore", "ignore", logFd] });
+}
+
+let passed = 0, browser = null, page = null; var erreursHttp = [];
+function ok(label){ passed++; console.log("  ✓ " + label); }
+
+(async () => {
+  if (!REMOTE) await new Promise(r => setTimeout(r, 700));
+  // Console + société de test (processus séparé : voir test-php.mjs)
+  const prep = REMOTE ? { status: 0 } : spawnSync(process.execPath, ["-e", `
+    (async () => {
+      const fs = require("fs");
+      await fetch(${JSON.stringify(R)} + "/console/api/status");
+      const code = /^\\s{4}([A-F0-9]{10})$/m.exec(fs.readFileSync(${JSON.stringify(path.join(data, "CODE-CONSOLE.txt"))}, "utf8"))[1];
+      const s = await fetch(${JSON.stringify(R)} + "/console/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, password: "Console-Kayely-2026" }) });
+      const ck = s.headers.get("set-cookie").split(";")[0];
+      const c = await fetch(${JSON.stringify(R)} + "/console/api/societes", { method: "POST", headers: { "Content-Type": "application/json", Cookie: ck }, body: JSON.stringify({ slug: "demo", nom: "Démo SARL" }) });
+      if (!c.ok) process.exit(1);
+      // La console crée désormais l'administrateur de la société ; ce test part d'une base vierge.
+      const { DatabaseSync } = require("node:sqlite");
+      await new Promise(r => setTimeout(r, 300));   // laisse le serveur PHP relâcher le fichier
+      const db = new DatabaseSync(${JSON.stringify(path.join(data, "societes", "demo.sqlite"))});
+      db.exec("PRAGMA busy_timeout = 4000");
+      for (const t of ["records", "sessions", "audit", "login_fails"]) db.exec("DELETE FROM " + t);
+      db.close();
+    })();`], { stdio: "inherit" });
+  assert.equal(prep.status, 0, "préparation");
+  console.log("Préparation OK");
+
+  // En mode distant, le navigateur passe par le proxy HTTPS de l'environnement s'il y en a un.
+  const proxy = REMOTE && (process.env.HTTPS_PROXY || process.env.https_proxy);
+  browser = await chromium.launch(proxy ? { proxy: { server: proxy } } : {});
+  const ctx = await browser.newContext(proxy ? { ignoreHTTPSErrors: true } : {});
+  page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  // Toute ressource bloquée par la politique de sécurité (CSP) est une erreur.
+  page.on("console", m => { if (/Content Security Policy|Refused to/i.test(m.text())) errors.push("CSP : " + m.text().slice(0, 200)); });
+  page.on("dialog", d => d.accept());
+  // Erreurs HTTP de l'API, avec l'origine probable : réponse JSON = application, sinon pare-feu / proxy.
+  const noterErreurs = pg => pg.on("response", async r => {
+    if (!r.url().includes("/api/") || r.status() < 400) return;
+    let corps = ""; try { corps = (await r.text()).slice(0, 120).replace(/\s+/g, " "); } catch(_){}
+    erreursHttp.push(r.status() + " " + r.request().method() + " " + r.url().replace(R, "") + " @" + new Date().toISOString().slice(11, 19)
+      + " [" + (r.headers()["content-type"] || "?") + "] " + corps);
+  });
+  noterErreurs(page);
+  await page.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
+  await page.goto(R + SOCIETE_PATH + "/");
+  await page.waitForFunction(() => ["setupCard", "loginCard"].some(id => getComputedStyle(document.getElementById(id)).display !== "none")
+    && getComputedStyle(document.getElementById("loginScreen")).display !== "none");
+  const dejaInstallee = await page.evaluate(() => getComputedStyle(document.getElementById("setupCard")).display === "none");
+  if (dejaInstallee){
+    // Société de test déjà utilisée par un essai précédent : on se reconnecte puis on vide ses données.
+    await page.fill("#loginUser", "admin"); await page.fill("#loginPass", "Admin-Demo-2026");
+    await page.click("#loginCard button");
+  } else {
+    await page.fill("#setupPass", "Admin-Demo-2026"); await page.fill("#setupPass2", "Admin-Demo-2026");
+    await page.click("#setupCard button");
+  }
+  // Premier accès : l'application installe le plan comptable SYSCOHADA (plusieurs centaines de comptes).
+  await page.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: REMOTE ? 600000 : 60000 })
+    .catch(async e => { throw new Error(e.message + " | écran : " + await page.evaluate(() => [document.getElementById("setupError").textContent, (document.getElementById("dbStatus")||{}).textContent].join(" / "))); });
+  if (dejaInstallee){
+    const n = await page.evaluate(async () => {
+      const garder = new Set(["utilisateurs", "planComptable", "baremeIts", "paieParametres", "societe"]);
+      let n = 0;
+      const viderStore = async key => {
+        for (const rec of await getAll(key)){
+          // coupures réseau possibles (test à distance) : jusqu'à 3 essais par suppression
+          for (let essai = 0; ; essai++){
+            try { await deleteRecord(key, rec.id); break; }
+            catch(e){ if (essai >= 2 || e.status === 404) throw e; await new Promise(r => setTimeout(r, 1500)); }
+          }
+          n++;
+        }
+      };
+      // D'abord les pièces liées (le serveur refuse de supprimer une facture encore réglée).
+      for (const key of ["reglements", "avoirs", "stockSorties", "stockEntrees"]) await viderStore(key);
+      for (const sec of SECTIONS) for (const m of sec.modules){
+        if (m.readonly || garder.has(m.key)) continue;
+        await viderStore(m.key);
+      }
+      for (const u of await getAll("utilisateurs")) if (u.login !== "admin"){ await deleteRecord("utilisateurs", u.id); n++; }
+      const soc = (await getAll("societe"))[0];
+      if (soc && soc.dateCloture){ soc.dateCloture = ""; await putRecord("societe", soc); }
+      return n;
+    });
+    console.log("Société de test vidée (" + n + " fiches d'un essai précédent)");
+  }
+  const hookToasts = pg => pg.evaluate(() => { window.__toasts = []; const o = window.toast; window.toast = m => { window.__toasts.push(m); o(m); }; });
+  await hookToasts(page);
+  // Attend le message de fin d'une action (le serveur distant peut mettre plusieurs secondes).
+  async function afterToast(pg, action){
+    const n = await pg.evaluate(() => window.__toasts.length);
+    await action();
+    await pg.waitForFunction(n => window.__toasts.length > n, n, { timeout: 120000 });
+  }
+  const lastToast = () => page.evaluate(() => window.__toasts[window.__toasts.length - 1]);
+
+  const ev = (fn, arg) => page.evaluate(fn, arg);
+  const journalStats = () => ev(async () => {
+    const j = await getAll("journal");
+    const d = j.reduce((s, e) => s + (Number(e.debit) || 0), 0), c = j.reduce((s, e) => s + (Number(e.credit) || 0), 0);
+    return { n: j.length, debit: d, credit: c, equilibre: Math.abs(d - c) < 0.01 };
+  });
+  const assertEquilibre = async (label) => { const st = await journalStats(); assert.ok(st.equilibre, label + " : journal déséquilibré " + JSON.stringify(st)); return st; };
+  // Remplit et enregistre un formulaire via l'interface
+  async function saveViaForm(store, values, id, lignes){
+    await ev(([s, i]) => openForm(s, i || undefined), [store, id]);
+    await page.waitForSelector("#overlay.show");
+    for (const [k, v] of Object.entries(values)){
+      const tag = await page.$eval("#f_" + k, el => el.tagName);
+      if (tag === "SELECT") await page.selectOption("#f_" + k, String(v)); else await page.fill("#f_" + k, String(v));
+    }
+    if (lignes) await lignes();
+    await afterToast(page, () => page.click("#overlay .modal-actions .btn.gold"));
+  }
+
+  console.log("Données de base");
+  await saveViaForm("clients", { nom: "Client Alpha" });
+  await saveViaForm("fournisseurs", { nom: "Fournisseur Beta" });
+  await saveViaForm("articles", { designation: "Ciment 50kg", prixAchat: 4000, prixVente: 5500, stockMini: 2 });
+  await saveViaForm("services", { designation: "Pose", prix: 20000 });
+  await saveViaForm("rhEmployes", { nom: "Kouassi", salaireBase: 250000, contrat: "CDI", situationFamiliale: "Marié(e)", nombreEnfants: 2 });
+  ok("client, fournisseur, article, service, employé créés");
+
+  console.log("Facture d'achat -> entrée en stock + écritures");
+  await saveViaForm("facturesAchat", { date: "2026-03-02", fournisseur: "Fournisseur Beta", montantRegle: 10000, modeReglement: "Banque" }, null, async () => {
+    await page.selectOption("#lignesEditor select", "Ciment 50kg");
+    const prix = await page.inputValue("#lignesEditor tbody tr:nth-child(1) td:nth-child(3) input");
+    assert.equal(prix, "4000", "prix d'achat repris");
+    const qty = page.locator("#lignesEditor tbody tr:nth-child(1) td:nth-child(2) input");
+    await qty.fill(""); await qty.type("10");
+    assert.equal(await qty.inputValue(), "10", "saisie continue de la quantité");
+  });
+  assert.equal(await ev(() => getArticleStock("Ciment 50kg")), 10);
+  let st = await assertEquilibre("après achat");
+  assert.equal(st.debit, 40000 * 1.18 + 10000);
+  const soldeFour = await ev(() => getFournisseurSolde("Fournisseur Beta"));
+  assert.equal(soldeFour, 40000 * 1.18 - 10000);
+  ok("stock +10, journal équilibré, solde fournisseur " + soldeFour);
+
+  console.log("Facture de vente avec ligne libre, règlement partiel");
+  await saveViaForm("factures", { date: "2026-03-05", client: "Client Alpha", montantRegle: 5000, timbreQuittance: 100 }, null, async () => {
+    await page.selectOption("#lignesEditor select", "Ciment 50kg");
+    const qty = page.locator("#lignesEditor tbody tr:nth-child(1) td:nth-child(2) input");
+    await qty.fill(""); await qty.type("3");
+    await page.click("#lignesEditor button.btn");               // + Ajouter une ligne
+    await page.selectOption("#lignesEditor tbody tr:nth-child(2) select", "__autre__");
+    const libre = page.locator("#lignesEditor tbody tr:nth-child(2) td:nth-child(1) input");
+    await libre.type("Transport chantier");
+    assert.equal(await libre.inputValue(), "Transport chantier", "saisie libre continue");
+    const pu = page.locator("#lignesEditor tbody tr:nth-child(2) td:nth-child(3) input");
+    await pu.fill(""); await pu.type("2500");
+    assert.equal(await page.inputValue("#f_montantHT"), String(3 * 5500 + 2500));
+  });
+  const fact = await ev(async () => (await getAll("factures"))[0]);
+  assert.deepEqual(fact.lignes.map(l => l.designation), ["Ciment 50kg", "Transport chantier"]);
+  assert.equal(await ev(() => getArticleStock("Ciment 50kg")), 7);
+  st = await assertEquilibre("après vente");
+  const ttc = 19000 * 1.18 + 100;
+  assert.equal(await ev(() => getClientSolde("Client Alpha")), ttc - 5000);
+  const ecrituresFacture = await ev(async n => (await getAll("journal")).filter(e => e.piece === n).length, fact.numero);
+  ok(`facture ${fact.numero} : stock 7, solde client ${ttc - 5000}, ${ecrituresFacture} écritures (dont règlement)`);
+
+  console.log("Modification de la facture : pas d'écritures en double");
+  await saveViaForm("factures", { montantRegle: 8000 }, fact.id, async () => {
+    const qty = page.locator("#lignesEditor tbody tr:nth-child(1) td:nth-child(2) input");
+    await qty.fill(""); await qty.type("4");
+  });
+  const apres = await ev(async n => (await getAll("journal")).filter(e => e.piece === n).length, fact.numero);
+  assert.equal(apres, ecrituresFacture, "même nombre d'écritures après modification");
+  assert.equal(await ev(() => getArticleStock("Ciment 50kg")), 6);
+  await assertEquilibre("après modification");
+  const fact2 = await ev(async id => (await getAll("factures")).find(f => f.id === id), fact.id);
+  assert.equal(fact2.numero, fact.numero, "numéro conservé");
+  ok("écritures remplacées (" + apres + "), stock 6, numéro conservé");
+
+  console.log("Règlements multiples sur la facture");
+  const ttcFact = 24500 * 1.18 + 100;                       // 29 010, dont 8 000 d'acompte
+  const reglerVia = async (montant, champs) => {
+    await ev(id => ouvrirReglement("factures", id), fact.id);
+    await page.waitForSelector("#overlay.show");
+    if (montant === null) return Number(await page.inputValue("#f_montant"));
+    await page.fill("#f_montant", String(montant));
+    for (const [k, v] of Object.entries(champs || {})){
+      const tag = await page.$eval("#f_" + k, el => el.tagName);
+      if (tag === "SELECT") await page.selectOption("#f_" + k, v); else await page.fill("#f_" + k, v);
+    }
+    await afterToast(page, () => page.click("#overlay .modal-actions .btn.gold"));
+  };
+  assert.equal(await reglerVia(null), ttcFact - 8000, "reste dû prérempli");
+  await ev(() => closeModal());
+  await reglerVia(10000, { moyen: "Chèque", reference: "CHQ-123" });
+  assert.equal(await ev(() => getClientSolde("Client Alpha")), ttcFact - 8000 - 10000);
+  await reglerVia(999999);
+  assert.match(await lastToast(), /supérieur au reste dû/);
+  await ev(() => closeModal());
+  await reglerVia(ttcFact - 18000, { modeReglement: "Banque", moyen: "Virement" });
+  assert.equal(Math.round(await ev(() => getClientSolde("Client Alpha"))), 0);
+  const regs = await ev(async () => getAll("reglements"));
+  assert.equal(regs.length, 2);
+  assert.deepEqual(regs.map(r => r.numero), ["RG-0001", "RG-0002"]);
+  assert.equal(await ev(async n => (await getAll("journal")).filter(e => e.piece && e.piece.startsWith("RG-")).length), 4);
+  await ev(() => renderRoute("factures"));
+  assert.match(await page.textContent("#content tbody"), /Soldée/);
+  await assertEquilibre("après règlements");
+  await ev(id => removeRecord("factures", id), fact.id);
+  assert.match(await lastToast(), /supprimez-les d'abord/);
+  ok("2 règlements (chèque en caisse, virement en banque), dépassement refusé, facture soldée, suppression protégée");
+
+  console.log("Avoir, devis -> facture");
+  await saveViaForm("avoirs", { date: "2026-03-06", client: "Client Alpha", montantHT: 1000, factureRef: fact.numero });
+  await saveViaForm("devis", { date: "2026-03-07", client: "Client Alpha", objet: "Chantier B", montantHT: 100000, statut: "Accepté" });
+  const devis = await ev(async () => (await getAll("devis"))[0]);
+  await ev(id => genererFactureDepuis("devis", id), devis.id);
+  await page.waitForTimeout(300);
+  const factDevis = await ev(async () => (await getAll("factures")).find(f => f.devisRef));
+  assert.ok(factDevis && factDevis.lignes.length === 1 && factDevis.montantHT === 100000, "facture issue du devis avec ligne");
+  await saveViaForm("devis", { objet: "Chantier B (révisé)" }, devis.id);
+  assert.equal((await ev(async id => (await getAll("devis")).find(d => d.id === id), devis.id)).factureNumero, factDevis.numero, "lien devis->facture conservé à la modification");
+  await ev(id => genererFactureDepuis("devis", id), devis.id);
+  assert.equal(await ev(async () => (await getAll("factures")).length), 2, "pas de deuxième facture pour le même devis");
+  await assertEquilibre("après avoir et devis");
+  ok("avoir comptabilisé, facture " + factDevis.numero + " générée depuis le devis, pas de doublon");
+
+  console.log("Caisse, paie, immobilisation");
+  await saveViaForm("treso_caisse", { date: "2026-03-08", type: "Décaissement", motif: "Carburant", contrepartie: "6051", montant: 15000 });
+  await saveViaForm("paieCalcul", { employe: "Kouassi", periode: "3/2026", salaireCategoriel: 250000, typeContrat: "CDI" });
+  const bulletin = await ev(async () => (await getAll("paieCalcul"))[0]);
+  assert.equal(bulletin.periode, "03/2026");
+  const datePaie = await ev(async () => (await getAll("journal")).find(e => e.journalType === "OD-Paie").date);
+  assert.equal(datePaie, "2026-03-31");
+  await saveViaForm("paieCalcul", { employe: "Kouassi", periode: "03/2026", salaireCategoriel: 250000 });
+  assert.match(await lastToast(), /existe déjà/);
+  const nPaie = await ev(async () => (await getAll("journal")).filter(e => e.journalType === "OD-Paie").length);
+  await saveViaForm("paieCalcul", { primeRendement: 10000 }, bulletin.id);
+  assert.equal(await ev(async () => (await getAll("journal")).filter(e => e.journalType === "OD-Paie").length), nPaie, "bulletin modifié sans doublon");
+  // Contre-vérification : les écritures de paie du SERVEUR == le calcul du NAVIGATEUR (computePaie).
+  const croise = await ev(async () => {
+    const b = (await getAll("paieCalcul")).find(x => x.periode === "03/2026");
+    const p = computePaie(b, await getPaieParams(), await getBareme());
+    const ecr = (await getAll("journal")).filter(e => e.source === "paieCalcul#" + b.id);
+    const credit = c => (ecr.find(e => e.compte === c && e.credit > 0) || {}).credit || 0;
+    return { brut: [(ecr.find(e => e.compte === "661") || {}).debit || 0, p.brutSocial],
+      net: [Math.round(credit("422")), Math.round(p.netAPayer)], its: [Math.round(credit("447")), Math.round(p.its)] };
+  });
+  assert.deepEqual(croise.brut, [croise.brut[1], croise.brut[1]], "paie : brut serveur = navigateur");
+  assert.deepEqual(croise.net, [croise.net[1], croise.net[1]], "paie : net serveur = navigateur");
+  assert.deepEqual(croise.its, [croise.its[1], croise.its[1]], "paie : ITS serveur = navigateur");
+  await saveViaForm("immobilisations", { designation: "Ordinateur", categorie: "Matériel informatique", dateAcquisition: "2026-01-15", valeurOrigineHT: 600000, dureeAns: 3, modePaiement: "Banque", compteContrepartie: "521" });
+  const immo = await ev(async () => (await getAll("immobilisations"))[0]);
+  await ev(id => postAmortissementAnnee("immobilisations", id, 2026), immo.id);
+  await page.waitForTimeout(300);
+  await saveViaForm("immobilisations", { designation: "Ordinateur portable" }, immo.id);
+  const immo2 = await ev(async id => (await getAll("immobilisations")).find(i => i.id === id), immo.id);
+  assert.deepEqual(immo2.anneesPostees, [2026], "dotation 2026 toujours marquée comptabilisée après modification");
+  assert.equal(await ev(async () => (await getAll("journal")).filter(e => e.journalType === "IM-Immobilisations").length), 3, "acquisition non dupliquée");
+  await assertEquilibre("après caisse, paie, immobilisation");
+  ok("ticket, bulletin (date 2026-03-31, doublon refusé, modification sans doublon), immobilisation (dotation conservée)");
+
+  console.log("Trésorerie cohérente");
+  await saveViaForm("caisses", { nom: "Caisse principale", soldeInit: 50000 });
+  const treso = await ev(() => computeTresorerie());
+  // caisse : 50000 initial + 8000 encaissé (facture) - 15000 ticket ; banque : -10000 (achat) - 600000*1.18 (immo)
+  // caisse : initial + acompte + règlement chèque - ticket ; banque : achat, immobilisation, règlement virement
+  const caisseAttendue = 50000 + 8000 + 10000 - 15000, banqueAttendue = -10000 - 708000 + (ttcFact - 18000);
+  assert.equal(Math.round(treso.parCompte.find(c => c.label === "Caisse").value), caisseAttendue);
+  assert.equal(Math.round(treso.parCompte.find(c => c.label === "Banques").value), Math.round(banqueAttendue));
+  ok("trésorerie : caisse " + caisseAttendue + ", banques " + Math.round(banqueAttendue));
+
+  console.log("Plusieurs caisses et banques, virement interne, rapprochement bancaire");
+  await saveViaForm("banques", { nom: "SIB" });
+  await saveViaForm("banques", { nom: "Ecobank", soldeInit: 100000 });
+  const ct = await ev(() => comptesTresorerie());
+  assert.deepEqual(ct.map(c => c.nom + ":" + c.compte), ["Caisse principale:5711", "SIB:5211", "Ecobank:5212"], "comptes attribués automatiquement");
+  await saveViaForm("banques", { nom: "BOA", compteOhada: "5211" });
+  assert.match(await lastToast(), /déjà utilisé/); await ev(() => closeModal());
+  await saveViaForm("virementsInternes", { date: "2026-03-10", source: "Caisse principale", destination: "SIB", montant: 20000, motif: "Versement espèces" });
+  await saveViaForm("virementsInternes", { date: "2026-03-10", source: "SIB", destination: "SIB", montant: 1 });
+  assert.match(await lastToast(), /différentes/); await ev(() => closeModal());
+  await saveViaForm("treso_caisse", { date: "2026-03-11", caisse: "Ecobank", type: "Décaissement", motif: "Frais de tenue de compte", contrepartie: "631", montant: 2500 });
+  const st5 = await ev(() => computeSoldesTresorerie());
+  const solde = nom => Math.round(st5.find(l => l.nom === nom).solde);
+  assert.equal(solde("SIB"), 20000); assert.equal(solde("Ecobank"), 97500); assert.equal(solde("Caisse principale"), 30000);
+  const imp = await ev(async () => {
+    const rows = [["Relevé SIB mars 2026"], ["Date opération", "Libellé", "Débit", "Crédit"],
+      ["10/03/2026", "VERSEMENT ESPECES", "", "20 000"], ["31/03/2026", "AGIOS 1ER TRIMESTRE", "1 500", ""]];
+    const r = await importerReleve("SIB", lireLignesReleve(rows), { soldeFinal: 18500, fichier: "releve-sib.csv" });
+    return { id: r.releve.id, rapprochees: r.rapprochees, n: r.releve.lignes.length };
+  });
+  assert.deepEqual([imp.n, imp.rapprochees], [2, 1], "versement rapproché automatiquement, agios restants");
+  await ev(id => comptabiliserLigneReleve(id, 1, "6311"), imp.id);
+  const sit5 = await ev(async id => { const s = await situationReleve((await getAll("relevesBancaires")).find(r => r.id === id));
+    return { reste: s.nonRapprochees.length, ecart: s.ecart, compta: s.soldeComptable }; }, imp.id);
+  assert.deepEqual([sit5.reste, Math.round(sit5.ecart), Math.round(sit5.compta)], [0, 0, 18500], "rapprochement équilibré");
+  await ev(() => renderRoute("rapprochementAuto"));
+  assert.match(await page.textContent("#content"), /Comptabilisée/);
+  await ev(() => renderRoute("soldesTresorerie"));
+  assert.match(await page.textContent("#content"), /Ecobank/);
+  await assertEquilibre("après virement et rapprochement");
+  ok("comptes 5711/5211/5212, virement caisse → SIB, ticket sur Ecobank, relevé importé : 1 ligne rapprochée, agios comptabilisés, écart 0");
+
+  console.log("États financiers, TVA, pièce comptable, impressions");
+  const ef = await ev(async () => computeEtatsFinanciers(await getAll("journal"), "2026-01-01", "2026-12-31"));
+  assert.ok(Math.abs(ef.bilan.ecart) < 0.01, "bilan équilibré, écart " + ef.bilan.ecart);
+  assert.equal(Math.round(ef.resultat.ca), 4 * 5500 + 2500 + 100000 - 1000, "CA = factures - avoir");
+  const tva = await ev(async () => computeTva(await getAll("journal")));
+  assert.equal(Math.round(tva.collectee), Math.round((24500 + 100000 - 1000) * 0.18));
+  assert.equal(Math.round(tva.deductible), Math.round(40000 * 0.18 + 600000 * 0.18));
+  await ev(() => openPieceForm()); await page.waitForSelector("#overlay.show");
+  await page.fill("#pc_piece", "OD-LOYER-03"); await page.fill("#pc_date", "2026-03-31");
+  const rows = page.locator("#pieceEditor tbody tr");
+  await rows.nth(0).locator("td:nth-child(1) input").fill("6222"); await rows.nth(0).locator("td:nth-child(3) input").fill("150000");
+  await rows.nth(1).locator("td:nth-child(1) input").fill("521"); await rows.nth(1).locator("td:nth-child(4) input").fill("140000");
+  await afterToast(page, () => page.click("#overlay .modal-actions .btn.gold"));
+  assert.match(await lastToast(), /déséquilibrée/);
+  await rows.nth(1).locator("td:nth-child(4) input").fill("150000");
+  await afterToast(page, () => page.click("#overlay .modal-actions .btn.gold"));
+  assert.equal(await ev(async () => (await getAll("journal")).filter(e => e.piece === "OD-LOYER-03").length), 2);
+  await assertEquilibre("après pièce multi-lignes");
+  const [popup] = await Promise.all([page.waitForEvent("popup"), ev(async () => printReleveClient((await getAll("clients"))[0].id))]);
+  await popup.waitForLoadState(); const releve = await popup.content(); await popup.close();
+  assert.match(releve, /Relevé de compte client/); assert.match(releve, /francs? CFA/);
+  assert.match(releve, /RG-0001/); assert.match(releve, /CHQ-123/);
+  const [popF] = await Promise.all([page.waitForEvent("popup"), ev(id => printFacture("factures", id), fact.id)]);
+  await popF.waitForLoadState(); assert.match(await popF.content(), /Arrêtée la présente facture à la somme de/); await popF.close();
+  const li = await ev(async () => { const j = await getAll("journal");
+    const L = computeLiasse(j, "2026-01-01", "2026-12-31"), E = computeEtatsFinanciers(j, "2026-01-01", "2026-12-31");
+    return { ecart: L.ecart, xi: L.resultatNet, net: E.resultat.net, ca: E.resultat.ca, bilanEF: E.bilan.totalActif, bz: L.totalActif,
+      cj: L.passif.find(x => x.ref === "CJ").montant, xb: L.compteResultat.find(x => x.ref === "XB").montant }; });
+  assert.ok(Math.abs(li.ecart) < 0.01, "liasse : BZ = DZ (écart " + li.ecart + ")");
+  assert.equal(Math.round(li.xi), Math.round(li.net), "liasse : XI = résultat net des états financiers");
+  assert.equal(Math.round(li.cj), Math.round(li.xi), "liasse : CJ = XI");
+  assert.equal(Math.round(li.xb), Math.round(li.ca), "liasse : chiffre d'affaires XB");
+  await ev(() => renderRoute("liasseDsf"));
+  for (const onglet of ["actif", "passif", "resultat", "identification"]) await ev(o => { liasseOnglet = o; return renderLiasse(); }, onglet);
+  const [popL] = await Promise.all([page.waitForEvent("popup"), ev(() => renderLiasse("imprimer"))]);
+  await popL.waitForLoadState(); const htmlL = await popL.content(); await popL.close();
+  assert.match(htmlL, /TOTAL GÉNÉRAL/); assert.match(htmlL, /RÉSULTAT NET \(XG \+ XH \+ RQ \+ RS\)/);
+  ok("liasse DSF : BZ = DZ, XI = CJ = résultat net, XB = CA, 4 onglets et impression");
+  ok("bilan équilibré, CA " + ef.resultat.ca + ", TVA due " + Math.round(tva.due) + ", pièce déséquilibrée refusée, relevé et facture en lettres");
+
+  console.log("Clôture de période");
+  await ev(async () => { const s = (await getAll("societe"))[0] || { id: 1 }; s.dateCloture = "2026-03-06"; await putRecord("societe", s); });
+  await saveViaForm("avoirs", { motif: "modif interdite" }, await ev(async () => (await getAll("avoirs"))[0].id));
+  assert.match(await lastToast(), /clôturée/);
+  await ev(() => closeModal());
+  const serveurRefuse = await ev(async () => { try { await putRecord("journal", { date: "2026-03-01", compte: "571", debit: 1, credit: 0 }); return "accepté"; } catch(e){ return e.message; } });
+  assert.match(serveurRefuse, /clôturée/, "refus côté serveur");
+  await ev(async () => { const s = (await getAll("societe"))[0]; s.dateCloture = ""; await putRecord("societe", s); });
+  ok("modification d'une pièce du 06/03 refusée (application et serveur), période rouverte par l'administrateur");
+
+  console.log("Suppression d'une facture : écritures, stock et lien devis retirés");
+  await ev(id => removeRecord("factures", id), factDevis.id);
+  await page.waitForTimeout(400);
+  assert.equal(await ev(async n => (await getAll("journal")).filter(e => e.piece === n).length, factDevis.numero), 0);
+  assert.equal((await ev(async id => (await getAll("devis")).find(d => d.id === id), devis.id)).factureNumero, undefined);
+  for (const r of await ev(async () => getAll("reglements"))) await ev(id => removeRecord("reglements", id), r.id);
+  assert.equal(await ev(async () => (await getAll("journal")).filter(e => e.piece && e.piece.startsWith("RG-")).length), 0, "écritures des règlements retirées");
+  await ev(id => removeRecord("factures", id), fact.id);
+  await page.waitForTimeout(400);
+  assert.equal(await ev(() => getArticleStock("Ciment 50kg")), 10, "stock restitué");
+  await assertEquilibre("après suppressions");
+  ok("écritures supprimées, stock restitué (10), devis de nouveau facturable");
+
+  console.log("Sécurité : texte saisi jamais exécuté");
+  await saveViaForm("clients", { nom: '<img src=x onerror="window.__xss=1">' });
+  await ev(() => renderRoute("clients")); await page.waitForTimeout(300);
+  await ev(() => openForm("factures")); await page.waitForTimeout(300);
+  await ev(() => closeModal());
+  assert.equal(await ev(() => window.__xss), undefined);
+  // Impression d'une facture au nom de ce client : le nom piégé doit rester du simple texte.
+  const idPiege = await ev(async () => {
+    const c = (await getAll("clients")).find(x => /onerror/.test(x.nom || ""));
+    return putRecord("factures", { date: "2026-09-15", client: c.nom, tvaPct: 18, montantRegle: 0,
+      lignes: [{ designation: "Article libre", quantite: 1, prixUnitaire: 1000, montant: 1000 }], montantHT: 1000 });
+  });
+  const [popX] = await Promise.all([page.waitForEvent("popup"), ev(id => printFacture("factures", id), idPiege)]);
+  await popX.waitForLoadState();
+  const htmlX = await popX.content();
+  const imgPiege = await popX.evaluate(() => document.querySelectorAll("img[onerror]").length);
+  await popX.close();
+  assert.equal(imgPiege, 0, "le nom piégé n'a créé aucun élément exécutable à l'impression");
+  assert.match(htmlX, /&lt;img/, "le nom piégé est affiché comme texte échappé");
+  assert.equal(await ev(() => window.__xss), undefined);
+  ok("aucun code injecté exécuté (liste, formulaire et impression de facture)");
+
+  console.log("Recherche : saisie continue");
+  await ev(() => renderRoute("clients")); await page.waitForTimeout(200);
+  await page.click("#content .search-box"); await page.keyboard.type("Alp", { delay: 80 });
+  await page.waitForFunction(() => document.querySelectorAll("#content tbody tr").length === 1, null, { timeout: 30000 });
+  assert.equal(await page.inputValue("#content .search-box"), "Alp");
+  ok("recherche « Alp » saisie sans perte du curseur");
+
+  console.log("Bibliothèques hébergées : Excel, import de relevé, lecture OCR");
+  assert.equal(await ev(() => typeof XLSX !== "undefined" && XLSX.version), "0.20.3", "SheetJS 0.20.3 chargé depuis le site");
+  await ev(() => renderRoute("clients"));
+  const [dl] = await Promise.all([page.waitForEvent("download"), ev(() => exportModuleExcel("clients"))]);
+  assert.match(dl.suggestedFilename(), /\.xlsx$/);
+  // import d'un vrai fichier de relevé CSV par le bouton « Importer un relevé »
+  await ev(() => { rapproBanque = "SIB"; return renderRoute("rapprochementAuto"); });
+  const avantImport = await ev(async () => (await getAll("relevesBancaires")).length);
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), ev(() => choisirFichierReleve())]);
+  await chooser.setFiles({ name: "releve-avril.csv", mimeType: "text/csv",
+    buffer: Buffer.from("\uFEFFDate;Libellé;Débit;Crédit\n02/04/2026;FRAIS TENUE DE COMPTE;2 000,00;\n", "utf8") });
+  await page.waitForFunction(n => getAll("relevesBancaires").then(r => r.length > n), avantImport, { timeout: 60000 });
+  const importe = await ev(async () => (await getAll("relevesBancaires")).slice(-1)[0]);
+  assert.deepEqual([importe.fichier, importe.lignes.length, importe.lignes[0].date, importe.lignes[0].montant], ["releve-avril.csv", 1, "2026-04-02", -2000]);
+  // lecture OCR d'une image (moteur, données de langue et worker servis par le site)
+  const texte = await ev(async () => {
+    const c = document.createElement("canvas"); c.width = 900; c.height = 180;
+    const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, 900, 180);
+    g.fillStyle = "#000"; g.font = "bold 56px Arial"; g.fillText("FACTURE 2026 TOTAL", 30, 110);
+    await loadTesseractScript();
+    const { data } = await Tesseract.recognize(c.toDataURL("image/png"), "fra", {
+      workerPath: kgpAssets("vendor/tesseract/worker.min.js"), corePath: kgpAssets("vendor/tesseract/core"),
+      langPath: kgpAssets("vendor/tesseract/lang"), gzip: false, workerBlobURL: false });
+    return data.text;
+  });
+  assert.match(texte, /FACTURE/i, "texte reconnu : " + texte);
+  ok("SheetJS 0.20.3 local, export Excel, import du relevé CSV par le bouton, OCR « " + texte.trim().slice(0, 30) + " »");
+
+  console.log("Tous les modules s'ouvrent sans erreur");
+  const keys = await ev(() => SECTIONS.flatMap(s => s.modules.map(m => m.key)));
+  for (const k of keys){
+    await ev(k => renderRoute(k), k); await page.waitForTimeout(60);
+    const m = await ev(k => MODULE_INDEX[k].mod, k);
+    if (!m.readonly && !m.single){ await ev(k => openForm(k), k); await page.waitForTimeout(60); await ev(() => closeModal()); }
+  }
+  await ev(() => renderRoute("accueil")); await page.waitForTimeout(300);
+  ok(keys.length + " modules et formulaires ouverts");
+
+  console.log("Rôle Comptable : modifier une facture remplace ses écritures");
+  await saveViaForm("utilisateurs", { nom: "Compta", login: "compta", motDePasse: "Compta-Init-2026", role: "Comptable", statut: "Actif" });
+  await saveViaForm("utilisateurs", { nom: "Caisse", login: "caisse-e2e", motDePasse: "Caisse-Init-2026", role: "Caissier(e)", statut: "Actif" });
+  const p2 = await ctx.newPage(); p2.on("pageerror", e => errors.push("compta: " + e.message)); p2.on("dialog", d => d.accept()); noterErreurs(p2);
+  await p2.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
+  await ev(() => logout());
+  await p2.goto(R + SOCIETE_PATH + "/");
+  await p2.fill("#loginUser", "compta"); await p2.fill("#loginPass", "Compta-Init-2026"); await p2.click("#loginCard button");
+  await p2.waitForSelector("#setupCard", { state: "visible" });
+  await p2.fill("#setupPass", "Compta-Perso-2026"); await p2.fill("#setupPass2", "Compta-Perso-2026"); await p2.click("#setupCard button");
+  await p2.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: REMOTE ? 600000 : 60000 })
+    .catch(async e => { throw new Error(e.message + " | écran : " + await p2.evaluate(() => [document.getElementById("setupError").textContent, document.getElementById("loginError").textContent, (document.getElementById("dbStatus")||{}).textContent].join(" / "))); });
+  await hookToasts(p2);
+  await p2.evaluate(() => openForm("factures")); await p2.waitForSelector("#overlay.show");
+  await p2.fill("#f_date", "2026-03-20"); await p2.selectOption("#f_client", "Client Alpha");
+  await p2.selectOption("#lignesEditor select", "Pose");
+  await afterToast(p2, () => p2.click("#overlay .modal-actions .btn.gold"));
+  const f3 = await p2.evaluate(async () => (await getAll("factures")).slice(-1)[0]);
+  const n3 = await p2.evaluate(async n => (await getAll("journal")).filter(e => e.piece === n).length, f3.numero);
+  await p2.evaluate(id => openForm("factures", id), f3.id); await p2.waitForSelector("#overlay.show");
+  await p2.fill("#f_montantRegle", "1000");
+  await afterToast(p2, () => p2.click("#overlay .modal-actions .btn.gold"));
+  const n3b = await p2.evaluate(async n => (await getAll("journal")).filter(e => e.piece === n).length, f3.numero);
+  assert.equal(n3b, n3 + 2, "règlement ajouté, rien en double");
+  const st3 = await p2.evaluate(async () => { const j = await getAll("journal"); return Math.abs(j.reduce((s,e)=>s+e.debit-e.credit,0)); });
+  assert.ok(st3 < 0.01, "journal équilibré");
+  ok("facture modifiée par le Comptable : " + n3 + " -> " + n3b + " écritures, journal équilibré");
+
+  console.log("Rôle Caissier : prix du catalogue imposé par le serveur");
+  await p2.evaluate(() => logout()); await p2.close();
+  const p4 = await ctx.newPage(); p4.on("pageerror", e => errors.push("caisse: " + e.message)); p4.on("dialog", d => d.accept()); noterErreurs(p4);
+  await p4.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
+  await ctx.clearCookies();
+  await p4.goto(R + SOCIETE_PATH + "/");
+  await p4.fill("#loginUser", "caisse-e2e"); await p4.fill("#loginPass", "Caisse-Init-2026"); await p4.click("#loginCard button");
+  await p4.waitForSelector("#setupCard", { state: "visible" });
+  await p4.fill("#setupPass", "Caisse-Perso-2026"); await p4.fill("#setupPass2", "Caisse-Perso-2026"); await p4.click("#setupCard button");
+  await p4.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: REMOTE ? 600000 : 60000 });
+  await hookToasts(p4);
+  await p4.evaluate(() => openForm("factures")); await p4.waitForSelector("#overlay.show");
+  await p4.fill("#f_date", "2026-03-21"); await p4.selectOption("#f_client", "Client Alpha");
+  await p4.selectOption("#lignesEditor select", "Pose");
+  await p4.fill("#lignesEditor input[data-a*='prixUnitaire']", "1");          // prix baissé à la main
+  await p4.fill("#f_tvaPct", "18"); await p4.fill("#f_montantRegle", "0");
+  await afterToast(p4, () => p4.click("#overlay .modal-actions .btn.gold"));
+  const msg4 = await p4.evaluate(() => window.__toasts[window.__toasts.length - 1]);
+  const f4 = await p4.evaluate(async () => (await getAll("factures")).slice(-1)[0]);
+  assert.equal(f4.lignes[0].prixUnitaire, 20000, "prix du catalogue appliqué");
+  assert.equal(f4.montantTTC, 23600, "TTC calculé par le serveur");
+  assert.match(msg4, /prix du catalogue appliqué/);
+  const vente4 = await p4.evaluate(async n => (await getAll("journal")).filter(e => e.piece === n && /^7/.test(String(e.compte))).reduce((s, e) => s + e.credit, 0), f4.numero);
+  assert.equal(vente4, 20000, "écriture de vente au prix du catalogue");
+  // le serveur refuse un encaissement supérieur au reste dû, même envoyé directement
+  const refus4 = await p4.evaluate(async n => (await fetch("api/data/reglements", { method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date: "2026-03-21", type: "Encaissement client", factureVente: n, montant: 999999, modeReglement: "Caisse" }) })).status, f4.numero);
+  assert.equal(refus4, 422, "règlement au-delà du reste dû refusé");
+  ok("prix saisi 1 → 20 000 (catalogue), TTC 23 600, vente comptabilisée 20 000, règlement excessif refusé");
+  await p4.evaluate(() => logout()); await p4.close();
+
+  console.log("Connexion pendant une vérification d'ouverture lente");
+  const p3 = await ctx.newPage(); p3.on("pageerror", e => errors.push("lent: " + e.message));
+  await ctx.clearCookies();
+  await p3.route("**/*", async r => {
+    const u = r.request().url();
+    if (!u.startsWith(R)) return r.abort();
+    if (u.includes("/api/data/articles") && !p3.__coupure){                          // coupure passagère
+      p3.__coupure = true;
+      return r.fulfill({ status: 502, contentType: "text/html", body: "Bad Gateway" });
+    }
+    if (u.includes("/api/me")){                                                     // réponse lente
+      const reponse = await r.fetch();
+      await new Promise(res => setTimeout(res, 3000));
+      return r.fulfill({ response: reponse });
+    }
+    return r.continue();
+  });
+  await p3.goto(R + SOCIETE_PATH + "/");
+  await p3.waitForSelector("#loginCard", { state: "visible" });
+  await p3.fill("#loginUser", "admin"); await p3.fill("#loginPass", "Admin-Demo-2026"); await p3.click("#loginCard button");
+  await p3.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: 120000 });
+  await p3.waitForTimeout(4000);                                                    // la réponse tardive arrive
+  assert.equal(await p3.evaluate(() => currentUser && currentUser.role), "Administrateur", "toujours connecté");
+  assert.ok(await p3.evaluate(() => document.getElementById("app").classList.contains("show")), "application toujours affichée");
+  ok("connexion maintenue malgré la réponse tardive de la vérification d'ouverture");
+  p3.__coupure = false;
+  assert.ok((await p3.evaluate(async () => (await getAll("articles")).length)) > 0, "lecture réussie après une erreur 502 passagère");
+  assert.ok(p3.__coupure, "la coupure a bien été simulée");
+  ok("lecture réessayée automatiquement après une coupure 502");
+
+  assert.deepEqual(errors, [], "aucune erreur JavaScript");
+  ok("aucune erreur JavaScript");
+  if (!REMOTE){
+    const log = fs.readFileSync(path.join(data, "php.log"), "utf8").split("\n").filter(l => /Fatal|Warning|Deprecated|Notice/.test(l));
+    assert.deepEqual(log, [], "aucun avertissement PHP");
+    ok("aucun avertissement PHP");
+  }
+  console.log(`\n${passed} vérifications réussies`);
+  await browser.close();
+})().catch(async e => {
+  console.error("\n✗ ÉCHEC :", e.message);
+  if (page) console.error("Derniers messages :", await page.evaluate(() => (window.__toasts || []).slice(-4)).catch(() => "?"));
+  if (typeof erreursHttp !== "undefined") console.error("Réponses en erreur :", erreursHttp.filter(e => !/^401 GET .*api\/me/.test(e)).slice(-8));
+  if (page) console.error("Utilisateur courant :", await page.evaluate(() => JSON.stringify(currentUser)).catch(() => "?"));
+  try{ console.error("Journal PHP :\n" + fs.readFileSync(path.join(data, "php.log"), "utf8").split("\n").filter(l => /KGP|Fatal|Warning|error/i.test(l)).slice(-15).join("\n")); }catch(_){}
+  process.exitCode = 1;
+}).finally(async () => {
+  if (browser) await browser.close().catch(() => {});
+  php.kill(); fs.rmSync(data, { recursive: true, force: true });
+});

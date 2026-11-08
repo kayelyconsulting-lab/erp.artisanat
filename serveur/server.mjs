@@ -1,0 +1,574 @@
+#!/usr/bin/env node
+// Serveur KAYELY GESTION PRO : sert l'application et vérifie côté serveur
+// l'authentification, les droits par rôle et CHAQUE donnée enregistrée.
+//
+//   node serveur/server.mjs            (variables : PORT, HOST, KGP_DB_FILE, KGP_APP_FILE)
+import http from "node:http";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadSchema } from "./schema.mjs";
+import { validateRecord, ValidationError } from "./validation.mjs";
+import { appliquerMontants, MODULES_MONTANTS } from "./montants.mjs";
+import { comptabiliser, supprimerComptabilisation, blocageSuppression, posterDotation, MODULES_COMPTA } from "./comptabilisation.mjs";
+import { generateSecret, totpVerify, otpauthUri } from "./totp.mjs";
+import { openDatabase } from "./db.mjs";
+import {
+  hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, LEGACY_DEFAULT_PASSWORDS,
+  newToken, tokenHash, createLoginLimiter,
+} from "./auth.mjs";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const COOKIE = "kgp_session";
+const IDLE_MS = 12 * 3600 * 1000;      // déconnexion après 12 h d'inactivité
+const ABSOLUTE_MS = 7 * 24 * 3600 * 1000;
+const MAX_BODY = 8 * 1024 * 1024;
+const ADMIN = "Administrateur", GERANT = "Gérant";
+
+class HttpError extends Error { constructor(status, message){ super(message); this.status = status; } }
+
+/* Message de journal sans données personnelles ni chemins (mêmes règles que la version PHP). */
+export function messageSur(m){
+  return String(m || "")
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "[email]")
+    .replace(/(?:[A-Za-z]:)?(?:[\\/][\w.-]+){2,}/g, "[chemin]")
+    .replace(/\b\d[\d .]{6,}\d\b/g, "[numéro]")
+    .replace(/\s+/g, " ").slice(0, 300);
+}
+
+export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":memory:" } = {}){
+  const schema = loadSchema(appFile);
+  const db = openDatabase(dbFile);
+  const limiter = createLoginLimiter();
+  // Limite globale par adresse IP, tous identifiants confondus (essais d'un mot de passe sur
+  // de nombreux comptes) : 30 échecs en 15 minutes.
+  const limiterIp = createLoginLimiter({ max: 30 });
+  const appHtml = (nonce = null) => fs.readFileSync(appFile, "utf8")
+    .replace(/src="assets\//g, 'src="/assets/')
+    .replace("<script>", nonce ? `<script nonce="${nonce}">` : "<script>")
+    .replace("<head>", `<head>\n<script${nonce ? ` nonce="${nonce}"` : ""}>window.KGP_SERVER = true; window.KGP_ASSETS = "/assets/";</script>`);
+  // Bibliothèques du navigateur hébergées avec l'application (assets/vendor)
+  const ASSETS = path.join(ROOT, "assets");
+  const TYPES = { ".js": "application/javascript; charset=utf-8", ".traineddata": "application/octet-stream" };
+  function serveAsset(req, res, pathname){
+    const fichier = path.resolve(ASSETS, "." + decodeURIComponent(pathname.slice("/assets".length)));
+    const type = TYPES[path.extname(fichier)];
+    if (!fichier.startsWith(ASSETS + path.sep) || !type || !fs.existsSync(fichier) || !fs.statSync(fichier).isFile()) return false;
+    res.writeHead(200, { "Content-Type": type, "X-Content-Type-Options": "nosniff", "Cache-Control": "public, max-age=604800",
+      "Cross-Origin-Resource-Policy": "same-origin" });
+    if (req.method === "HEAD"){ res.end(); return true; }
+    fs.createReadStream(fichier).pipe(res);
+    return true;
+  }
+
+  /* ---------- utilisateurs ---------- */
+  const publicUser = u => { if (!u) return null; const { motDePasseHash, totpSecret, totpPending, ...rest } = u; return { ...rest, motDePasse: "", totpActif: !!u.totpActif }; };
+  const isExpired = u => {
+    if (!u.dateExpiration) return false;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return new Date(u.dateExpiration + "T00:00:00") < today;
+  };
+  const isActive = u => u && (u.statut || "Actif") === "Actif" && !isExpired(u);
+  const findByLogin = login => db.all("utilisateurs")
+    .find(u => (u.login || "").toLowerCase() === String(login || "").trim().toLowerCase());
+
+  /* ---------- sessions ---------- */
+  function readCookie(req){
+    const m = (req.headers.cookie || "").split(/;\s*/).find(c => c.startsWith(COOKIE + "="));
+    return m ? decodeURIComponent(m.slice(COOKIE.length + 1)) : null;
+  }
+  const isHttps = req => req.socket.encrypted || req.headers["x-forwarded-proto"] === "https";
+  function setSessionCookie(req, res, token, maxAgeSec){
+    res.setHeader("Set-Cookie", `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSec}${isHttps(req) ? "; Secure" : ""}`);
+  }
+  function startSession(req, res, user){
+    const token = newToken();
+    db.sessions.create(tokenHash(token), user.id);
+    setSessionCookie(req, res, token, ABSOLUTE_MS / 1000);
+  }
+  function currentSession(req){
+    const token = readCookie(req);
+    if (!token) return null;
+    const hash = tokenHash(token);
+    const s = db.sessions.get(hash);
+    const now = Date.now();
+    if (!s || now - s.last_seen > IDLE_MS || now - s.created_at > ABSOLUTE_MS){ if (s) db.sessions.delete(hash); return null; }
+    const user = db.get("utilisateurs", s.user_id);
+    if (!isActive(user)){ db.sessions.delete(hash); return null; }
+    db.sessions.touch(hash);
+    return { hash, user };
+  }
+  function requireUser(req){
+    const s = currentSession(req);
+    if (!s) throw new HttpError(401, "Session expirée : reconnectez-vous.");
+    if (s.user.doitChangerMotDePasse && !req.url.startsWith("/api/password") && !req.url.startsWith("/api/logout") && !req.url.startsWith("/api/me")){
+      throw new HttpError(403, "Changez d'abord votre code secret.");
+    }
+    return s;
+  }
+
+  /* ---------- droits par rôle (mêmes règles que l'interface) ---------- */
+  const isAdmin = u => u.role === ADMIN;
+  const isGerantOrAdmin = u => u.role === ADMIN || u.role === GERANT;
+  function moduleOr404(store){
+    const mod = schema.modules.get(store);
+    if (!mod) throw new HttpError(404, "Module inconnu");
+    return mod;
+  }
+  // Caissier(e) : pas d'accès aux données du personnel (RH, paie), pas de modification du
+  // plan comptable ni des immobilisations ; dans le journal, seulement les écritures générées
+  // par ses propres pièces (factures, tickets, règlements : champ « source »).
+  const CAISSIER = "Caissier(e)";
+  const SECTIONS_CONFIDENTIELLES = new Set(["rh", "paie"]);
+  const ECRITURE_INTERDITE_CAISSIER = new Set(["planComptable", "immobilisations"]);
+  const peutLire = (user, mod) => !(user.role === CAISSIER && SECTIONS_CONFIDENTIELLES.has(mod.section));
+  // Le Caissier ne peut écrire au journal que les écritures générées par ses PROPRES pièces.
+  // La « source » (« module#id ») doit donc désigner une pièce réelle, d'un module qu'il a le
+  // droit d'alimenter — sinon il pourrait forger des écritures comptables arbitraires.
+  function sourceCaissierValide(source){
+    if (typeof source !== "string" || !source) return false;
+    const [srcStore, idStr] = source.split("#");
+    const srcMod = schema.modules.get(srcStore);
+    if (!srcMod || srcMod.key === "journal") return false;
+    if (srcMod.adminOnly || srcMod.key === "utilisateurs" || srcMod.section === "parametres") return false;
+    if (SECTIONS_CONFIDENTIELLES.has(srcMod.section) || ECRITURE_INTERDITE_CAISSIER.has(srcMod.key)) return false;
+    const id = Number(idStr);
+    if (!Number.isInteger(id) || id <= 0) return false;
+    return !!db.get(srcMod.key, id);
+  }
+  function assertCanWrite(user, mod, input){
+    let ok = mod.key === "utilisateurs" || mod.adminOnly ? isAdmin(user)
+      : mod.section === "parametres" ? isGerantOrAdmin(user) : true;
+    if (ok && user.role === CAISSIER){
+      if (SECTIONS_CONFIDENTIELLES.has(mod.section) || ECRITURE_INTERDITE_CAISSIER.has(mod.key)) ok = false;
+      if (mod.key === "journal" && !sourceCaissierValide(input && input.source)) ok = false;
+    }
+    if (!ok) throw new HttpError(403, "Action non autorisée pour votre rôle.");
+  }
+
+  /* ---------- clôture de période ----------
+     Société > « Période comptable clôturée jusqu'au » : aucune pièce datée avant (incluse)
+     ne peut plus être créée, modifiée ni supprimée. */
+  const LOCK_DATE_FIELDS = { factures:"date", avoirs:"date", facturesAchat:"date", stockEntrees:"date", stockSorties:"date", reglements:"date",
+    treso_caisse:"date", journal:"date", immobilisations:"dateAcquisition", paieCalcul:"periode" };
+  function pieceDate(store, r){
+    const f = LOCK_DATE_FIELDS[store];
+    if (!f || !r || typeof r[f] !== "string") return "";
+    if (f !== "periode") return r[f];
+    const m = /^\s*(\d{1,2})\s*\/\s*(\d{4})\s*$/.exec(r[f]);
+    if (!m) return "";
+    const mois = Number(m[1]), annee = Number(m[2]);
+    return `${annee}-${String(mois).padStart(2, "0")}-${String(new Date(annee, mois, 0).getDate()).padStart(2, "0")}`;
+  }
+  const lockDate = () => { const s = db.get("societe", 1); return s && typeof s.dateCloture === "string" ? s.dateCloture : ""; };
+  function assertOpen(store, r){
+    const lock = lockDate(), d = pieceDate(store, r);
+    if (lock && d && d <= lock) throw new ValidationError([`Période clôturée jusqu'au ${lock} : une pièce du ${d} ne peut plus être créée, modifiée ni supprimée.`]);
+  }
+
+  /* ---------- lecture / écriture des données ---------- */
+  function list(user, store){
+    const mod = moduleOr404(store);
+    if (!peutLire(user, mod)) throw new HttpError(403, "Accès non autorisé pour votre rôle.");
+    if (mod.key === "utilisateurs"){
+      const all = db.all("utilisateurs").map(publicUser);
+      return isGerantOrAdmin(user) ? all : all.filter(u => u.id === user.id);
+    }
+    return db.all(mod.key);
+  }
+
+  function activeAdminsExcept(id, replacement){
+    return db.all("utilisateurs").map(u => u.id === id ? replacement : u)
+      .filter(u => u && u.role === ADMIN && isActive(u)).length;
+  }
+
+  function put(user, store, input, sessionHash = "", retour = null){
+    const mod = moduleOr404(store);
+    assertCanWrite(user, mod, input);
+    if (input === null || typeof input !== "object" || Array.isArray(input)) throw new ValidationError(["Enregistrement invalide"]);
+
+    return db.transaction(() => {
+      let id = input.id;
+      if (mod.single) id = 1;
+      if (id !== undefined && id !== null && !(Number.isInteger(id) && id > 0 && id < 2 ** 31)) throw new ValidationError(["Identifiant invalide"]);
+      const existing = id ? db.get(mod.key, id) : null;
+      if (!id) id = db.nextId(mod.key);
+
+      const lookups = new Map();
+      const record = validateRecord(mod, input, {
+        existing,
+        lookup(source, field){
+          const k = source + "." + field;
+          if (!lookups.has(k)) lookups.set(k, new Set(db.all(source).map(r => r[field]).filter(v => typeof v === "string")));
+          return lookups.get(k);
+        },
+        numeroPrefix: schema.numeroPrefixes[mod.key],
+        numeroTaken: numero => db.all(mod.key).some(r => r.numero === numero && r.id !== id),
+      });
+
+      if (mod.key === "utilisateurs"){
+        const other = findByLogin(record.login);
+        if (other && other.id !== id) throw new ValidationError([`L'identifiant « ${record.login} » est déjà utilisé`]);
+        // Les champs de double authentification ne sont jamais fixés par une fiche : ils ne changent
+        // que via les routes /api/2fa, et sont conservés tels quels lors d'une modification de fiche.
+        record.totpSecret = existing ? existing.totpSecret : undefined;
+        record.totpActif = existing ? !!existing.totpActif : false;
+        record.totpPending = existing ? existing.totpPending : undefined;
+        const pw = input.motDePasse;
+        if (pw){
+          const problem = passwordProblem(pw);
+          if (problem) throw new ValidationError([problem]);
+          record.motDePasseHash = hashPassword(pw);
+          // Un administrateur qui fixe le code d'un autre compte : celui-ci devra le changer.
+          record.doitChangerMotDePasse = id !== user.id;
+          if (existing) db.sessions.deleteOthers(id, id === user.id ? sessionHash : "");
+        } else if (existing && existing.motDePasseHash){
+          record.motDePasseHash = existing.motDePasseHash;
+          record.doitChangerMotDePasse = !!existing.doitChangerMotDePasse;
+        } else {
+          throw new ValidationError(["Code secret : champ obligatoire"]);
+        }
+        if (activeAdminsExcept(id, { ...record, id }) === 0) throw new ValidationError(["Il doit rester au moins un administrateur actif."]);
+      }
+
+      if (MODULES_MONTANTS.has(mod.key)){
+        const prixCorriges = appliquerMontants(mod.key, record, { all: s => db.all(s), existing, id, privilegie: isGerantOrAdmin(user) });
+        // Montants retenus renvoyés au navigateur : la comptabilisation part de ces valeurs.
+        if (retour) Object.assign(retour, { enregistrement: { ...record, id }, prixCorriges });
+      }
+
+      assertOpen(mod.key, existing);
+      assertOpen(mod.key, record);
+      if (mod.key === "societe" && existing && existing.dateCloture && !isAdmin(user)
+          && (!record.dateCloture || record.dateCloture < existing.dateCloture)){
+        throw new HttpError(403, "Seul l'administrateur peut rouvrir une période clôturée.");
+      }
+      db.put(mod.key, id, record, user.id);
+      db.audit(user.id, existing ? "update" : "create", mod.key, id);
+      // Écritures comptables et mouvements de stock générés par le serveur (grand livre fiable).
+      if (MODULES_COMPTA.has(mod.key)) comptabiliser(db, mod.key, { ...record, id }, user.id);
+      return id;
+    });
+  }
+
+  function remove(user, store, id){
+    const mod = moduleOr404(store);
+    if (!Number.isInteger(id) || id <= 0) throw new ValidationError(["Identifiant invalide"]);
+    if (!isAdmin(user)){
+      // Les écritures et mouvements générés automatiquement (champ « source » ou « auto »)
+      // sont remplacés quand leur pièce est modifiée : tout rôle qui peut écrire dans le
+      // module peut les retirer. Les autres suppressions restent réservées à l'administrateur.
+      const rec = db.get(mod.key, id);
+      const genere = rec && (typeof rec.source === "string" && rec.source !== "" || rec.auto === true);
+      if (!genere || mod.key === "utilisateurs") throw new HttpError(403, "Suppression réservée à l'administrateur.");
+      assertCanWrite(user, mod, rec);
+    }
+    return db.transaction(() => {
+      if (mod.key === "utilisateurs"){
+        if (id === user.id) throw new ValidationError(["Vous ne pouvez pas supprimer votre propre compte."]);
+        if (activeAdminsExcept(id, null) === 0) throw new ValidationError(["Il doit rester au moins un administrateur actif."]);
+        db.sessions.deleteOthers(id, "");
+      }
+      const rec = db.get(mod.key, id);
+      if (MODULES_COMPTA.has(mod.key) && rec){
+        const blocage = blocageSuppression(db, mod.key, rec);
+        if (blocage) throw new ValidationError([blocage]);
+      }
+      assertOpen(mod.key, rec);
+      // Retire d'abord les écritures et mouvements de stock générés par la pièce.
+      if (MODULES_COMPTA.has(mod.key) && rec) supprimerComptabilisation(db, mod.key, rec, user.id);
+      const ok = db.delete(mod.key, id);
+      if (ok) db.audit(user.id, "delete", mod.key, id);
+      return ok;
+    });
+  }
+
+  /* ---------- HTTP ---------- */
+  function readBody(req){
+    return new Promise((resolve, reject) => {
+      let size = 0; const chunks = [];
+      req.on("data", c => { size += c.length; if (size > MAX_BODY){ reject(new HttpError(413, "Données trop volumineuses")); req.destroy(); } else chunks.push(c); });
+      req.on("end", () => {
+        if (!chunks.length) return resolve({});
+        try{ resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+        catch(e){ reject(new HttpError(400, "JSON invalide")); }
+      });
+      req.on("error", reject);
+    });
+  }
+  // En-têtes de sécurité (mêmes règles que la version PHP). Le script de la page est autorisé par
+  // un « nonce » unique à chaque requête : la CSP n'a pas besoin de 'unsafe-inline'.
+  const cspPage = nonce => "default-src 'self'; "
+    + "script-src 'self' " + (nonce ? "'nonce-" + nonce + "'" : "'unsafe-inline'") + " 'wasm-unsafe-eval'; "
+    + "worker-src 'self'; "
+    + "connect-src 'self' data: blob:; "
+    + "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; "
+    + "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+  function securityHeaders(req, page, nonce = null){
+    const https = !!req && isHttps(req);
+    return {
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "same-origin",
+      "Permissions-Policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Resource-Policy": "same-origin",
+      "Content-Security-Policy": page ? cspPage(nonce) + (https ? "; upgrade-insecure-requests" : "") : "default-src 'none'; frame-ancestors 'none'",
+      ...(https ? { "Strict-Transport-Security": "max-age=31536000" } : {}),
+    };
+  }
+  function send(res, status, body, headers = {}){
+    const isJson = typeof body !== "string";
+    res.writeHead(status, {
+      "Content-Type": isJson ? "application/json; charset=utf-8" : "text/html; charset=utf-8",
+      ...securityHeaders(res.req, !isJson),
+      ...(res.corsHeaders || {}),
+      ...headers,
+    });
+    res.end(isJson ? JSON.stringify(body) : body);
+  }
+  /* CORS : seules les pages de ce même domaine peuvent appeler l'API
+     (+ origines listées dans KGP_ALLOWED_ORIGINS, séparées par des virgules). */
+  function origineAutorisee(req, origin){
+    let o; try { o = new URL(origin); } catch(e){ return false; }
+    if (o.host.toLowerCase() === String(req.headers.host || "").toLowerCase() && (!isHttps(req) || o.protocol === "https:")) return true;
+    return String(process.env.KGP_ALLOWED_ORIGINS || "").split(",").map(s => s.trim().replace(/\/+$/, ""))
+      .filter(Boolean).some(a => a.toLowerCase() === origin.replace(/\/+$/, "").toLowerCase());
+  }
+  /* Renvoie true si la réponse (pré-vérification OPTIONS) est déjà envoyée. */
+  function cors(req, res){
+    const origin = req.headers.origin;
+    if (origin){
+      if (!origineAutorisee(req, origin)) throw new HttpError(403, "Origine refusée : seules les pages de ce domaine peuvent utiliser cette API.");
+      res.corsHeaders = { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Credentials": "true", "Vary": "Origin" };
+    }
+    if (req.method === "OPTIONS"){
+      res.writeHead(204, { ...securityHeaders(req, false), ...(res.corsHeaders || {}),
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "600" });
+      res.end();
+      return true;
+    }
+    return false;
+  }
+  // Anti-CSRF : écritures uniquement en JSON et depuis la même origine.
+  function assertSameOrigin(req){
+    if (!["POST", "PUT", "DELETE"].includes(req.method)) return;
+    // DELETE n'a pas de corps ; c'est une méthode « non simple » : un autre site ne peut
+    // pas l'envoyer sans autorisation CORS (jamais accordée ici).
+    if (req.method !== "DELETE" && !(req.headers["content-type"] || "").startsWith("application/json")) throw new HttpError(415, "JSON attendu");
+    const origin = req.headers.origin;
+    if (origin && !origineAutorisee(req, origin)) throw new HttpError(403, "Origine refusée");
+  }
+
+  async function handleApi(req, res, url){
+    if (cors(req, res)) return;
+    assertSameOrigin(req);
+    const p = url.pathname;
+    const m = req.method;
+
+    if (p === "/api/status" && m === "GET") return send(res, 200, { server: true, needsSetup: db.count("utilisateurs") === 0 });
+
+    if (p === "/api/setup" && m === "POST"){
+      const { login, password } = await readBody(req);
+      const user = db.transaction(() => {
+        if (db.count("utilisateurs") > 0) throw new HttpError(409, "L'administrateur a déjà été créé.");
+        const problem = passwordProblem(password);
+        if (problem) throw new ValidationError([problem]);
+        const clean = validateRecord(schema.modules.get("utilisateurs"),
+          { nom: "Administrateur", prenom: "Système", login, role: ADMIN, statut: "Actif", dateExpiration: "" },
+          { lookup: () => new Set(), numeroTaken: () => false });
+        const u = { ...clean, motDePasseHash: hashPassword(password), doitChangerMotDePasse: false };
+        db.put("utilisateurs", 1, u, null);
+        db.audit(1, "setup", "utilisateurs", 1);
+        return { ...u, id: 1 };
+      });
+      startSession(req, res, user);
+      return send(res, 200, { user: publicUser(user) });
+    }
+
+    if (p === "/api/login" && m === "POST"){
+      const { login, password, code } = await readBody(req);
+      const ip = req.socket.remoteAddress || "";
+      const key = ip + "|" + String(login || "").toLowerCase(), keyIp = "ip|" + ip;
+      const user = findByLogin(login);
+      if (limiter.blocked(key) || limiterIp.blocked(keyIp)){
+        db.audit(user ? user.id : null, "login-bloque", null, null);
+        throw new HttpError(429, "Trop de tentatives : réessayez dans 15 minutes.");
+      }
+      const ok = verifyPassword(String(password || ""), user ? user.motDePasseHash : DUMMY_HASH) && !!user;
+      if (!ok){ limiter.fail(key); limiterIp.fail(keyIp); db.audit(user ? user.id : null, "login-echec", null, null); throw new HttpError(401, "Identifiant ou code secret incorrect."); }
+      if ((user.statut || "Actif") !== "Actif") throw new HttpError(403, "Ce compte est désactivé. Contactez l'administrateur.");
+      if (isExpired(user)) throw new HttpError(403, "Votre durée d'accès a expiré. Contactez l'administrateur.");
+      limiter.reset(key);
+      // Double authentification : si elle est active, un code à usage unique est exigé en plus du code secret.
+      if (user.totpActif){
+        if (!code) return send(res, 200, { needsTotp: true });
+        if (!totpVerify(user.totpSecret, code)){
+          limiter.fail(key); limiterIp.fail(keyIp);
+          db.audit(user.id, "login-echec-2fa", null, null);
+          throw new HttpError(401, "Code d'authentification à deux facteurs incorrect.");
+        }
+      }
+      if (LEGACY_DEFAULT_PASSWORDS.includes(password) && !user.doitChangerMotDePasse){
+        user.doitChangerMotDePasse = true;
+        db.put("utilisateurs", user.id, user, user.id);
+      }
+      startSession(req, res, user);
+      db.audit(user.id, "login", null, null);
+      return send(res, 200, { user: publicUser(user) });
+    }
+
+    if (p === "/api/logout" && m === "POST"){
+      const token = readCookie(req);
+      if (token) db.sessions.delete(tokenHash(token));
+      setSessionCookie(req, res, "", 0);
+      return send(res, 200, { ok: true });
+    }
+
+    const session = requireUser(req);
+    const user = session.user;
+
+    if (p === "/api/me" && m === "GET") return send(res, 200, { user: publicUser(user) });
+
+    // Journal d'activité (administrateur) : qui a fait quoi, sans le contenu des fiches.
+    if (p === "/api/audit" && m === "GET"){
+      if (!isAdmin(user)) throw new HttpError(403, "Journal d'activité réservé à l'administrateur.");
+      const logins = Object.fromEntries(db.all("utilisateurs").map(u => [u.id, u.login]));
+      const rows = db.raw.prepare("SELECT at, user_id, action, store, record_id FROM audit ORDER BY rowid DESC LIMIT 500").all();
+      return send(res, 200, rows.map(r => ({ date: new Date(r.at).toISOString(), utilisateur: r.user_id ? (logins[r.user_id] || "#" + r.user_id) : "",
+        action: r.action, module: r.store || "", fiche: r.record_id || null })));
+    }
+
+    if (p === "/api/password" && m === "POST"){
+      const { current, password } = await readBody(req);
+      if (!user.doitChangerMotDePasse && !verifyPassword(String(current || ""), user.motDePasseHash)){
+        throw new ValidationError(["Code secret actuel incorrect."]);
+      }
+      const problem = passwordProblem(password);
+      if (problem) throw new ValidationError([problem]);
+      if (verifyPassword(password, user.motDePasseHash)) throw new ValidationError(["Choisissez un code secret différent de l'actuel."]);
+      const updated = { ...user, motDePasseHash: hashPassword(password), doitChangerMotDePasse: false };
+      db.put("utilisateurs", user.id, updated, user.id);
+      db.sessions.deleteOthers(user.id, session.hash);
+      db.audit(user.id, "password", "utilisateurs", user.id);
+      return send(res, 200, { user: publicUser(updated) });
+    }
+
+    // Envoi groupé (ex. plan comptable au premier accès) : chaque fiche est vérifiée comme un PUT.
+    const lot = /^\/api\/data\/([A-Za-z_]+)\/lot$/.exec(p);
+    if (lot && m === "PUT"){
+      const items = await readBody(req);
+      if (!Array.isArray(items) || items.length > 1000) throw new ValidationError(["Lot invalide (1 000 fiches au maximum)"]);
+      const ids = [];
+      items.forEach((it, i) => {
+        try { ids.push(put(user, lot[1], it, session.hash)); }
+        catch (e){ if (e instanceof ValidationError) e.message = `Fiche ${i + 1} : ${e.message}`; throw e; }
+      });
+      return send(res, 200, { ids });
+    }
+    // Double authentification (TOTP) : activation, désactivation, réinitialisation par l'admin.
+    if (p === "/api/2fa/status" && m === "GET") return send(res, 200, { actif: !!user.totpActif });
+    if (p === "/api/2fa/start" && m === "POST"){
+      const secret = generateSecret();
+      db.put("utilisateurs", user.id, { ...db.get("utilisateurs", user.id), totpPending: secret }, user.id);
+      const soc = db.get("societe", 1);
+      return send(res, 200, { secret, otpauth: otpauthUri(secret, user.login, (soc && soc.raison) || "KAYELY GESTION PRO") });
+    }
+    if (p === "/api/2fa/activate" && m === "POST"){
+      const { code } = await readBody(req);
+      const u = db.get("utilisateurs", user.id);
+      if (!u.totpPending) throw new ValidationError(["Commencez par générer un secret (Activer)."]);
+      if (!totpVerify(u.totpPending, code)) throw new HttpError(401, "Code incorrect. Vérifiez l'heure de votre téléphone et réessayez.");
+      db.put("utilisateurs", u.id, { ...u, totpSecret: u.totpPending, totpActif: true, totpPending: undefined }, u.id);
+      return send(res, 200, { actif: true });
+    }
+    if (p === "/api/2fa/disable" && m === "POST"){
+      const { code } = await readBody(req);
+      const u = db.get("utilisateurs", user.id);
+      if (u.totpActif && !totpVerify(u.totpSecret, code)) throw new HttpError(401, "Code incorrect.");
+      db.put("utilisateurs", u.id, { ...u, totpSecret: undefined, totpActif: false, totpPending: undefined }, u.id);
+      return send(res, 200, { actif: false });
+    }
+    const reset2fa = /^\/api\/2fa\/reset\/(\d+)$/.exec(p);
+    if (reset2fa && m === "POST"){
+      if (!isAdmin(user)) throw new HttpError(403, "Réinitialisation réservée à l'administrateur.");
+      const target = db.get("utilisateurs", Number(reset2fa[1]));
+      if (!target) throw new HttpError(404, "Utilisateur introuvable");
+      db.put("utilisateurs", target.id, { ...target, totpSecret: undefined, totpActif: false, totpPending: undefined }, user.id);
+      db.audit(user.id, "2fa-reset", "utilisateurs", target.id);
+      return send(res, 200, { actif: false });
+    }
+    // Dotation annuelle d'amortissement d'une immobilisation : comptabilisée par le serveur.
+    const dot = /^\/api\/immobilisations\/(\d+)\/dotation\/(\d{4})$/.exec(p);
+    if (dot && m === "POST"){
+      assertCanWrite(user, moduleOr404("immobilisations"), {});
+      const message = db.transaction(() => {
+        const rec = db.get("immobilisations", Number(dot[1]));
+        if (rec) assertOpen("immobilisations", rec);
+        return posterDotation(db, Number(dot[1]), Number(dot[2]), user.id, ValidationError);
+      });
+      return send(res, 200, { message });
+    }
+    const dm = /^\/api\/data\/([A-Za-z_]+)(?:\/(\d+))?$/.exec(p);
+    if (dm){
+      const [, store, idStr] = dm;
+      if (m === "GET" && !idStr) return send(res, 200, list(user, store));
+      if (m === "PUT" && !idStr){
+        const retour = {}, id = put(user, store, await readBody(req), session.hash, retour);
+        return send(res, 200, { id, ...retour });
+      }
+      if (m === "DELETE" && idStr) return send(res, 200, { ok: remove(user, store, Number(idStr)) });
+    }
+    throw new HttpError(404, "Route inconnue");
+  }
+
+  async function handler(req, res){
+    const url = new URL(req.url, "http://localhost");
+    // L'hébergeur peut monter l'application dans un sous-dossier (ex. /kgpro/) sans retirer
+    // ce préfixe : on ne garde que la partie utile du chemin.
+    const apiAt = url.pathname.indexOf("/api/");
+    if (apiAt > 0) url.pathname = url.pathname.slice(apiAt);
+    try{
+      if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
+      if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/assets/") && serveAsset(req, res, url.pathname)) return;
+      if (req.method === "GET" && (url.pathname.endsWith("/") || url.pathname.endsWith("/kgpro.html"))){
+        const nonce = crypto.randomBytes(16).toString("base64url");
+        return send(res, 200, appHtml(nonce), { "Content-Security-Policy": cspPage(nonce) + (isHttps(req) ? "; upgrade-insecure-requests" : "") });
+      }
+      return send(res, 404, { error: "Introuvable" });
+    }catch(e){
+      if (e instanceof ValidationError) return send(res, 422, { error: e.message, errors: e.errors });
+      if (e instanceof HttpError) return send(res, e.status, { error: e.message });
+      // Journal : référence + type + message nettoyé + emplacement, jamais les données saisies.
+      const ref = crypto.randomBytes(4).toString("hex").toUpperCase();
+      const lieu = String(e && e.stack || "").split("\n").find(l => /\.mjs:\d+/.test(l)) || "";
+      console.error(`[KGP ${ref}] ${e && e.name || "Erreur"} : ${messageSur(e && e.message)} ${lieu.trim().replace(/^at /, "@ ").replace(/\(?(?:[A-Za-z]:)?[\\/].*[\\/]/, "(")}`);
+      return send(res, 500, { error: `Erreur interne du serveur (réf. ${ref}). Réessayez ; si le problème persiste, communiquez cette référence à Kayely Group.` });
+    }
+  }
+
+  setInterval(() => db.sessions.purge(Date.now() - IDLE_MS), 3600 * 1000).unref();
+  return { handler, db, schema };
+}
+
+// Démarre le serveur. Appelé directement (npm start) ou par app.cjs (Phusion Passenger,
+// utilisé par les hébergements cPanel comme LWS : Passenger intercepte listen()).
+export function startServer(){
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  if (major < 22 || (major === 22 && minor < 13)){
+    throw new Error(`Node.js ${process.versions.node} trop ancien : choisissez Node.js 22.13 ou plus récent (24 conseillé).`);
+  }
+  const port = Number(process.env.PORT || 8080);
+  const host = process.env.HOST || "127.0.0.1";
+  const dbFile = path.resolve(process.env.KGP_DB_FILE || path.join(ROOT, "donnees", "kgpro.sqlite"));
+  const { handler } = createApp({ appFile: process.env.KGP_APP_FILE || path.join(ROOT, "kgpro.html"), dbFile });
+  const server = http.createServer(handler);
+  server.listen(port, host, () => {
+    console.log(`KAYELY GESTION PRO : http://${host}:${port}  (base : ${dbFile})`);
+  });
+  return server;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) startServer();

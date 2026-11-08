@@ -1,0 +1,2094 @@
+{
+ "modules": {
+  "societe": {
+   "key": "societe",
+   "label": "Société",
+   "single": true,
+   "fields": [
+    {
+     "k": "logo",
+     "l": "Logo de l'entreprise",
+     "t": "image"
+    },
+    {
+     "k": "raison",
+     "l": "Raison sociale",
+     "t": "text"
+    },
+    {
+     "k": "sigle",
+     "l": "Sigle",
+     "t": "text"
+    },
+    {
+     "k": "forme",
+     "l": "Forme juridique",
+     "t": "text"
+    },
+    {
+     "k": "rccm",
+     "l": "RCCM",
+     "t": "text"
+    },
+    {
+     "k": "cc",
+     "l": "N° Contribuable (CC)",
+     "t": "text"
+    },
+    {
+     "k": "regime",
+     "l": "Régime fiscal",
+     "t": "text"
+    },
+    {
+     "k": "adresse",
+     "l": "Adresse",
+     "t": "text"
+    },
+    {
+     "k": "ville",
+     "l": "Ville",
+     "t": "text"
+    },
+    {
+     "k": "tel",
+     "l": "Téléphone",
+     "t": "text"
+    },
+    {
+     "k": "email",
+     "l": "Email",
+     "t": "text"
+    },
+    {
+     "k": "capital",
+     "l": "Capital social (FCFA)",
+     "t": "number"
+    },
+    {
+     "k": "activite",
+     "l": "Activité principale",
+     "t": "text"
+    },
+    {
+     "k": "dirigeant",
+     "l": "Nom du dirigeant",
+     "t": "text"
+    },
+    {
+     "k": "centreImpots",
+     "l": "Centre des impôts de rattachement",
+     "t": "text"
+    },
+    {
+     "k": "debutExercice",
+     "l": "Début de l'exercice comptable en cours",
+     "t": "date"
+    },
+    {
+     "k": "dateCloture",
+     "l": "Période comptable clôturée jusqu'au (inclus) — plus aucune modification avant cette date",
+     "t": "date"
+    }
+   ],
+   "section": "parametres"
+  },
+  "utilisateurs": {
+   "key": "utilisateurs",
+   "label": "Utilisateurs",
+   "fields": [
+    {
+     "k": "nom",
+     "l": "Nom",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "prenom",
+     "l": "Prénom",
+     "t": "text"
+    },
+    {
+     "k": "login",
+     "l": "Identifiant de connexion",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "motDePasse",
+     "l": "Code secret",
+     "t": "password",
+     "req": 1
+    },
+    {
+     "k": "role",
+     "l": "Rôle / niveau de validation",
+     "t": "select",
+     "opts": [
+      "Administrateur",
+      "Gérant",
+      "Comptable",
+      "Caissier(e)"
+     ],
+     "req": 1
+    },
+    {
+     "k": "statut",
+     "l": "Statut",
+     "t": "select",
+     "opts": [
+      "Actif",
+      "Inactif"
+     ]
+    },
+    {
+     "k": "dateExpiration",
+     "l": "Accès valable jusqu'au (laisser vide = illimité)",
+     "t": "date"
+    }
+   ],
+   "cols": [
+    "nom",
+    "prenom",
+    "login",
+    "role",
+    "statut",
+    "dateExpiration"
+   ],
+   "section": "parametres"
+  },
+  "taxes": {
+   "key": "taxes",
+   "adminOnly": true,
+   "label": "Taxes",
+   "fields": [
+    {
+     "k": "libelle",
+     "l": "Libellé",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "type",
+     "l": "Type",
+     "t": "select",
+     "opts": [
+      "TVA",
+      "IS",
+      "CNPS",
+      "Autre"
+     ]
+    },
+    {
+     "k": "taux",
+     "l": "Taux (%)",
+     "t": "number"
+    },
+    {
+     "k": "compteOhada",
+     "l": "Compte OHADA lié",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "libelle",
+    "type",
+    "taux",
+    "compteOhada"
+   ],
+   "section": "parametres"
+  },
+  "clients": {
+   "key": "clients",
+   "label": "Clients",
+   "special": "clients",
+   "fields": [
+    {
+     "k": "code",
+     "l": "Code client",
+     "t": "text"
+    },
+    {
+     "k": "nom",
+     "l": "Raison sociale / Nom",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "ncc",
+     "l": "NCC (N° Compte Contribuable)",
+     "t": "text"
+    },
+    {
+     "k": "contact",
+     "l": "Contact",
+     "t": "text"
+    },
+    {
+     "k": "tel",
+     "l": "Téléphone",
+     "t": "text"
+    },
+    {
+     "k": "email",
+     "l": "Email",
+     "t": "text"
+    },
+    {
+     "k": "adresse",
+     "l": "Adresse",
+     "t": "text"
+    },
+    {
+     "k": "compteOhada",
+     "l": "Compte OHADA (411x)",
+     "t": "text"
+    },
+    {
+     "k": "plafond",
+     "l": "Plafond crédit",
+     "t": "number"
+    }
+   ],
+   "cols": [
+    "code",
+    "nom",
+    "ncc",
+    "tel",
+    "compteOhada",
+    "solde"
+   ],
+   "section": "clients"
+  },
+  "fournisseurs": {
+   "key": "fournisseurs",
+   "label": "Fournisseurs",
+   "special": "fournisseurs",
+   "fields": [
+    {
+     "k": "code",
+     "l": "Code fournisseur",
+     "t": "text"
+    },
+    {
+     "k": "nom",
+     "l": "Raison sociale",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "ncc",
+     "l": "NCC (N° Compte Contribuable)",
+     "t": "text"
+    },
+    {
+     "k": "contact",
+     "l": "Contact",
+     "t": "text"
+    },
+    {
+     "k": "tel",
+     "l": "Téléphone",
+     "t": "text"
+    },
+    {
+     "k": "compteOhada",
+     "l": "Compte OHADA (401x)",
+     "t": "text"
+    },
+    {
+     "k": "conditions",
+     "l": "Conditions paiement",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "code",
+    "nom",
+    "ncc",
+    "tel",
+    "compteOhada",
+    "solde"
+   ],
+   "section": "fournisseurs"
+  },
+  "facturesAchat": {
+   "key": "facturesAchat",
+   "label": "Factures d'achat",
+   "hasLignes": true,
+   "fields": [
+    {
+     "k": "scanImage",
+     "l": "Facture scannée (photo/scan)",
+     "t": "image",
+     "ocr": true,
+     "maxDim": 1600,
+     "help": "Prenez en photo ou importez le scan de la facture papier, puis cliquez sur « Lire la facture (OCR) » pour pré-remplir automatiquement la date, le fournisseur, le montant et la TVA. Le document reste archivé avec la fiche."
+    },
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "fournisseur",
+     "l": "Fournisseur",
+     "t": "dynselect",
+     "source": "fournisseurs",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "numeroFournisseur",
+     "l": "N° facture fournisseur",
+     "t": "text"
+    },
+    {
+     "k": "montantHT",
+     "l": "Montant HT (calculé sur les lignes)",
+     "t": "number",
+     "readonly": 1
+    },
+    {
+     "k": "tvaPct",
+     "l": "TVA (%)",
+     "t": "number",
+     "def": 18
+    },
+    {
+     "k": "timbreQuittance",
+     "l": "Timbre de quittance (FCFA)",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "montantRegle",
+     "l": "Payé à la création (acompte) — les paiements suivants se saisissent dans « Règlements »",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "modeReglement",
+     "l": "Réglé par (compte de trésorerie)",
+     "t": "select",
+     "opts": [
+      "Caisse",
+      "Banque"
+     ],
+     "def": "Caisse"
+    },
+    {
+     "k": "compteTreso",
+     "l": "Caisse ou banque précise (facultatif)",
+     "t": "tresoselect"
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "fournisseur",
+    "montantTTC",
+    "regle",
+    "solde",
+    "statut"
+   ],
+   "special": "facturesAchat",
+   "section": "fournisseurs"
+  },
+  "articles": {
+   "key": "articles",
+   "label": "Articles",
+   "special": "articles",
+   "fields": [
+    {
+     "k": "code",
+     "l": "Code article",
+     "t": "text"
+    },
+    {
+     "k": "designation",
+     "l": "Désignation",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "famille",
+     "l": "Famille",
+     "t": "text"
+    },
+    {
+     "k": "unite",
+     "l": "Unité",
+     "t": "text"
+    },
+    {
+     "k": "prixAchat",
+     "l": "Prix achat",
+     "t": "number"
+    },
+    {
+     "k": "prixVente",
+     "l": "Prix vente HT",
+     "t": "number"
+    },
+    {
+     "k": "tva",
+     "l": "TVA (%)",
+     "t": "number",
+     "def": 18
+    },
+    {
+     "k": "stockMini",
+     "l": "Stock mini",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "compteStock",
+     "l": "Compte stock OHADA",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "code",
+    "designation",
+    "famille",
+    "prixVente",
+    "stock",
+    "stockMini"
+   ],
+   "section": "stocks"
+  },
+  "stockEntrees": {
+   "key": "stockEntrees",
+   "label": "Entrées",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "fournisseur",
+     "l": "Fournisseur",
+     "t": "dynselect",
+     "source": "fournisseurs",
+     "labelField": "nom"
+    },
+    {
+     "k": "article",
+     "l": "Article",
+     "t": "dynselect",
+     "source": "articles",
+     "labelField": "designation",
+     "req": 1
+    },
+    {
+     "k": "quantite",
+     "l": "Quantité",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "prixUnitaire",
+     "l": "Prix unitaire",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "tvaPct",
+     "l": "TVA (%)",
+     "t": "number",
+     "def": 18
+    }
+   ],
+   "cols": [
+    "date",
+    "fournisseur",
+    "article",
+    "quantite",
+    "prixUnitaire"
+   ],
+   "special": "stockEntree",
+   "section": "stocks"
+  },
+  "stockSorties": {
+   "key": "stockSorties",
+   "label": "Sorties",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "motif",
+     "l": "Motif",
+     "t": "select",
+     "opts": [
+      "Vente",
+      "Usage interne",
+      "Perte/Casse"
+     ]
+    },
+    {
+     "k": "article",
+     "l": "Article",
+     "t": "dynselect",
+     "source": "articles",
+     "labelField": "designation",
+     "req": 1
+    },
+    {
+     "k": "quantite",
+     "l": "Quantité",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "prixUnitaire",
+     "l": "Prix unitaire",
+     "t": "number"
+    }
+   ],
+   "cols": [
+    "date",
+    "motif",
+    "article",
+    "quantite"
+   ],
+   "section": "stocks"
+  },
+  "inventaire": {
+   "key": "inventaire",
+   "label": "Inventaire",
+   "fields": [
+    {
+     "k": "article",
+     "l": "Article",
+     "t": "dynselect",
+     "source": "articles",
+     "labelField": "designation",
+     "req": 1
+    },
+    {
+     "k": "stockPhysique",
+     "l": "Stock physique compté",
+     "t": "number"
+    },
+    {
+     "k": "date",
+     "l": "Date inventaire",
+     "t": "date"
+    },
+    {
+     "k": "responsable",
+     "l": "Responsable",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "article",
+    "stockTheorique",
+    "stockPhysique",
+    "ecart",
+    "date"
+   ],
+   "special": "inventaire",
+   "section": "stocks"
+  },
+  "services": {
+   "key": "services",
+   "label": "Services",
+   "fields": [
+    {
+     "k": "code",
+     "l": "Code service",
+     "t": "text"
+    },
+    {
+     "k": "designation",
+     "l": "Désignation",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "prix",
+     "l": "Prix HT",
+     "t": "number"
+    },
+    {
+     "k": "tva",
+     "l": "TVA (%)",
+     "t": "number",
+     "def": 18
+    }
+   ],
+   "cols": [
+    "code",
+    "designation",
+    "prix",
+    "tva"
+   ],
+   "section": "facturation"
+  },
+  "devis": {
+   "key": "devis",
+   "label": "Devis",
+   "canGenerateFacture": true,
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "client",
+     "l": "Client",
+     "t": "dynselect",
+     "source": "clients",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "objet",
+     "l": "Objet",
+     "t": "text"
+    },
+    {
+     "k": "montantHT",
+     "l": "Montant HT",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "statut",
+     "l": "Statut",
+     "t": "select",
+     "opts": [
+      "En cours",
+      "Accepté",
+      "Refusé"
+     ]
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "client",
+    "montantHT",
+    "statut"
+   ],
+   "section": "facturation"
+  },
+  "bonsCommande": {
+   "key": "bonsCommande",
+   "label": "Bons de commande",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "fournisseur",
+     "l": "Fournisseur",
+     "t": "dynselect",
+     "source": "fournisseurs",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "montantHT",
+     "l": "Montant HT",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "statut",
+     "l": "Statut",
+     "t": "select",
+     "opts": [
+      "En attente",
+      "Livré",
+      "Annulé"
+     ]
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "fournisseur",
+    "montantHT",
+    "statut"
+   ],
+   "section": "facturation"
+  },
+  "bonsLivraison": {
+   "key": "bonsLivraison",
+   "label": "Bons de livraison",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "client",
+     "l": "Client",
+     "t": "dynselect",
+     "source": "clients",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "commandeRef",
+     "l": "Commande liée",
+     "t": "dynselect",
+     "source": "bonsCommande",
+     "labelField": "numero"
+    },
+    {
+     "k": "statut",
+     "l": "Statut",
+     "t": "select",
+     "opts": [
+      "Préparé",
+      "Expédié",
+      "Livré"
+     ]
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "client",
+    "commandeRef",
+    "statut"
+   ],
+   "section": "facturation"
+  },
+  "factures": {
+   "key": "factures",
+   "label": "Factures de vente",
+   "hasLignes": true,
+   "fields": [
+    {
+     "k": "scanImage",
+     "l": "Facture scannée (photo/scan)",
+     "t": "image",
+     "ocr": true,
+     "maxDim": 1600,
+     "help": "Prenez en photo ou importez le scan de la facture papier, puis cliquez sur « Lire la facture (OCR) » pour pré-remplir automatiquement la date, le client, le montant et la TVA. Le document reste archivé avec la fiche."
+    },
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "client",
+     "l": "Client",
+     "t": "dynselect",
+     "source": "clients",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "montantHT",
+     "l": "Montant HT (calculé sur les lignes)",
+     "t": "number",
+     "readonly": 1
+    },
+    {
+     "k": "tvaPct",
+     "l": "TVA (%)",
+     "t": "number",
+     "def": 18
+    },
+    {
+     "k": "timbreQuittance",
+     "l": "Timbre de quittance (FCFA)",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "montantRegle",
+     "l": "Encaissé à la création (acompte) — les encaissements suivants se saisissent dans « Règlements »",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "modeReglement",
+     "l": "Encaissé par (compte de trésorerie)",
+     "t": "select",
+     "opts": [
+      "Caisse",
+      "Banque"
+     ],
+     "def": "Caisse"
+    },
+    {
+     "k": "compteTreso",
+     "l": "Caisse ou banque précise (facultatif)",
+     "t": "tresoselect"
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "client",
+    "montantTTC",
+    "regle",
+    "solde",
+    "statut"
+   ],
+   "special": "factures",
+   "section": "facturation"
+  },
+  "avoirs": {
+   "key": "avoirs",
+   "label": "Avoirs",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "client",
+     "l": "Client",
+     "t": "dynselect",
+     "source": "clients",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "factureRef",
+     "l": "Facture liée",
+     "t": "dynselect",
+     "source": "factures",
+     "labelField": "numero"
+    },
+    {
+     "k": "motif",
+     "l": "Motif",
+     "t": "text"
+    },
+    {
+     "k": "montantHT",
+     "l": "Montant HT",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "tvaPct",
+     "l": "TVA (%)",
+     "t": "number",
+     "def": 18
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "client",
+    "factureRef",
+    "montantHT"
+   ],
+   "special": "avoirs",
+   "section": "facturation"
+  },
+  "reglements": {
+   "key": "reglements",
+   "label": "Règlements (encaissements / paiements)",
+   "special": "reglement",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date du règlement",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "type",
+     "l": "Type",
+     "t": "select",
+     "opts": [
+      "Encaissement client",
+      "Paiement fournisseur"
+     ],
+     "req": 1
+    },
+    {
+     "k": "factureVente",
+     "l": "Facture de vente réglée (encaissement)",
+     "t": "dynselect",
+     "source": "factures",
+     "labelField": "numero"
+    },
+    {
+     "k": "factureAchat",
+     "l": "Facture d'achat réglée (paiement)",
+     "t": "dynselect",
+     "source": "facturesAchat",
+     "labelField": "numero"
+    },
+    {
+     "k": "montant",
+     "l": "Montant réglé",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "modeReglement",
+     "l": "Compte de trésorerie",
+     "t": "select",
+     "opts": [
+      "Caisse",
+      "Banque"
+     ],
+     "def": "Caisse",
+     "req": 1
+    },
+    {
+     "k": "compteTreso",
+     "l": "Caisse ou banque précise (facultatif)",
+     "t": "tresoselect"
+    },
+    {
+     "k": "moyen",
+     "l": "Moyen de paiement",
+     "t": "select",
+     "opts": [
+      "Espèces",
+      "Chèque",
+      "Virement",
+      "Mobile Money",
+      "Carte bancaire"
+     ]
+    },
+    {
+     "k": "reference",
+     "l": "Référence (n° de chèque, de transaction...)",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "type",
+    "factureRef",
+    "tiers",
+    "montant",
+    "moyen",
+    "reference"
+   ],
+   "section": "facturation"
+  },
+  "banques": {
+   "key": "banques",
+   "label": "Banques",
+   "special": "compteTreso",
+   "fields": [
+    {
+     "k": "nom",
+     "l": "Nom banque",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "numCompte",
+     "l": "N° compte",
+     "t": "text"
+    },
+    {
+     "k": "agence",
+     "l": "Agence",
+     "t": "text"
+    },
+    {
+     "k": "compteOhada",
+     "l": "Compte OHADA lié (vide = attribué automatiquement : 5211, 5212...)",
+     "t": "text"
+    },
+    {
+     "k": "soldeInit",
+     "l": "Solde initial",
+     "t": "number"
+    }
+   ],
+   "cols": [
+    "nom",
+    "numCompte",
+    "compteOhada",
+    "soldeInit"
+   ],
+   "section": "tresorerie"
+  },
+  "caisses": {
+   "key": "caisses",
+   "label": "Caisses",
+   "special": "compteTreso",
+   "fields": [
+    {
+     "k": "nom",
+     "l": "Nom caisse",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "responsable",
+     "l": "Responsable",
+     "t": "text"
+    },
+    {
+     "k": "compteOhada",
+     "l": "Compte OHADA (vide = attribué automatiquement : 5711, 5712...)",
+     "t": "text"
+    },
+    {
+     "k": "soldeInit",
+     "l": "Solde initial",
+     "t": "number"
+    }
+   ],
+   "cols": [
+    "nom",
+    "responsable",
+    "compteOhada",
+    "soldeInit"
+   ],
+   "section": "tresorerie"
+  },
+  "treso_caisse": {
+   "key": "treso_caisse",
+   "label": "Tickets de caisse / banque",
+   "special": "treso",
+   "compte": "571",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "caisse",
+     "l": "Caisse ou banque (vide = caisse générale 571)",
+     "t": "tresoselect"
+    },
+    {
+     "k": "type",
+     "l": "Type d'opération",
+     "t": "select",
+     "opts": [
+      "Encaissement",
+      "Décaissement"
+     ],
+     "req": 1
+    },
+    {
+     "k": "motif",
+     "l": "Motif / libellé",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "tiers",
+     "l": "Tiers (client / fournisseur / employé)",
+     "t": "text"
+    },
+    {
+     "k": "contrepartie",
+     "l": "Compte OHADA de contrepartie",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "montant",
+     "l": "Montant",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "moyenPaiement",
+     "l": "Moyen de paiement",
+     "t": "select",
+     "opts": [
+      "Espèces",
+      "Chèque",
+      "Virement",
+      "Mobile Money"
+     ]
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "caisse",
+    "type",
+    "motif",
+    "tiers",
+    "montant",
+    "solde"
+   ],
+   "section": "tresorerie"
+  },
+  "virementsInternes": {
+   "key": "virementsInternes",
+   "label": "Virements internes",
+   "special": "virement",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "source",
+     "l": "Depuis (caisse ou banque)",
+     "t": "tresoselect",
+     "req": 1
+    },
+    {
+     "k": "destination",
+     "l": "Vers (caisse ou banque)",
+     "t": "tresoselect",
+     "req": 1
+    },
+    {
+     "k": "montant",
+     "l": "Montant",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "motif",
+     "l": "Motif",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "source",
+    "destination",
+    "montant",
+    "motif"
+   ],
+   "section": "tresorerie"
+  },
+  "relevesBancaires": {
+   "key": "relevesBancaires",
+   "label": "Relevés bancaires importés",
+   "fields": [
+    {
+     "k": "banque",
+     "l": "Banque",
+     "t": "dynselect",
+     "source": "banques",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "dateReleve",
+     "l": "Date du relevé",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "soldeFinal",
+     "l": "Solde final indiqué par la banque",
+     "t": "number"
+    },
+    {
+     "k": "fichier",
+     "l": "Fichier importé",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "numero",
+    "banque",
+    "dateReleve",
+    "soldeFinal",
+    "fichier"
+   ],
+   "section": "tresorerie"
+  },
+  "rapprochement": {
+   "key": "rapprochement",
+   "label": "Rapprochement (saisie manuelle)",
+   "fields": [
+    {
+     "k": "banque",
+     "l": "Banque",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "dateReleve",
+     "l": "Date relevé",
+     "t": "date"
+    },
+    {
+     "k": "soldeCompta",
+     "l": "Solde comptable",
+     "t": "number"
+    },
+    {
+     "k": "soldeReleve",
+     "l": "Solde relevé bancaire",
+     "t": "number"
+    }
+   ],
+   "cols": [
+    "banque",
+    "dateReleve",
+    "soldeCompta",
+    "soldeReleve",
+    "ecart"
+   ],
+   "section": "tresorerie"
+  },
+  "cheques": {
+   "key": "cheques",
+   "label": "Chèques",
+   "fields": [
+    {
+     "k": "numero",
+     "l": "N° chèque",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "date",
+     "l": "Date émission",
+     "t": "date"
+    },
+    {
+     "k": "banque",
+     "l": "Banque",
+     "t": "text"
+    },
+    {
+     "k": "beneficiaire",
+     "l": "Bénéficiaire",
+     "t": "text"
+    },
+    {
+     "k": "montant",
+     "l": "Montant",
+     "t": "number"
+    },
+    {
+     "k": "statut",
+     "l": "Statut",
+     "t": "select",
+     "opts": [
+      "Émis",
+      "Encaissé",
+      "Annulé"
+     ]
+    }
+   ],
+   "cols": [
+    "numero",
+    "date",
+    "beneficiaire",
+    "montant",
+    "statut"
+   ],
+   "section": "tresorerie"
+  },
+  "planComptable": {
+   "key": "planComptable",
+   "label": "Plan comptable OHADA",
+   "fields": [
+    {
+     "k": "classe",
+     "l": "Classe",
+     "t": "select",
+     "opts": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8"
+     ],
+     "req": 1
+    },
+    {
+     "k": "compte",
+     "l": "N° compte",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "intitule",
+     "l": "Intitulé",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "nature",
+     "l": "Nature",
+     "t": "text"
+    },
+    {
+     "k": "sens",
+     "l": "Sens normal",
+     "t": "select",
+     "opts": [
+      "Débit",
+      "Crédit",
+      "Variable"
+     ]
+    }
+   ],
+   "cols": [
+    "compte",
+    "intitule",
+    "classe",
+    "sens"
+   ],
+   "section": "comptabilite"
+  },
+  "immobilisations": {
+   "key": "immobilisations",
+   "label": "Immobilisations",
+   "special": "immobilisations",
+   "fields": [
+    {
+     "k": "designation",
+     "l": "Désignation",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "categorie",
+     "l": "Catégorie",
+     "t": "select",
+     "opts": [
+      "Terrains",
+      "Bâtiments & installations",
+      "Matériel & outillage",
+      "Matériel informatique",
+      "Matériel de transport",
+      "Mobilier de bureau",
+      "Logiciels & brevets",
+      "Autres immobilisations"
+     ],
+     "req": 1
+    },
+    {
+     "k": "compteImmo",
+     "l": "Compte immobilisation (classe 2)",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "compteAmort",
+     "l": "Compte amortissement (28x)",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "dateAcquisition",
+     "l": "Date d'acquisition",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "valeurOrigineHT",
+     "l": "Valeur d'origine HT (FCFA)",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "tvaPct",
+     "l": "TVA récupérable (%)",
+     "t": "number",
+     "def": 18
+    },
+    {
+     "k": "dureeAns",
+     "l": "Durée d'amortissement (années)",
+     "t": "number",
+     "def": 5,
+     "req": 1
+    },
+    {
+     "k": "valeurResiduelle",
+     "l": "Valeur résiduelle (FCFA)",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "modePaiement",
+     "l": "Mode de règlement",
+     "t": "select",
+     "opts": [
+      "Fournisseur (à crédit)",
+      "Banque",
+      "Caisse"
+     ],
+     "req": 1
+    },
+    {
+     "k": "compteContrepartie",
+     "l": "Compte contrepartie (fournisseur/banque/caisse)",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "statut",
+     "l": "Statut",
+     "t": "select",
+     "opts": [
+      "En service",
+      "Cédée",
+      "Réformée"
+     ]
+    }
+   ],
+   "cols": [
+    "numero",
+    "designation",
+    "categorie",
+    "dateAcquisition",
+    "valeurOrigineHT",
+    "dureeAns",
+    "vnc",
+    "statut"
+   ],
+   "section": "comptabilite"
+  },
+  "journal": {
+   "key": "journal",
+   "label": "Journal",
+   "fields": [
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date",
+     "req": 1
+    },
+    {
+     "k": "journalType",
+     "l": "Journal",
+     "t": "select",
+     "opts": [
+      "AC-Achats",
+      "VE-Ventes",
+      "BQ-Banque",
+      "CA-Caisse",
+      "OD-Opérations diverses",
+      "OD-Paie",
+      "OD-Amort",
+      "IM-Immobilisations"
+     ]
+    },
+    {
+     "k": "piece",
+     "l": "N° pièce",
+     "t": "text"
+    },
+    {
+     "k": "compte",
+     "l": "N° compte",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "libelle",
+     "l": "Libellé",
+     "t": "text"
+    },
+    {
+     "k": "debit",
+     "l": "Débit",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "credit",
+     "l": "Crédit",
+     "t": "number",
+     "def": 0
+    }
+   ],
+   "cols": [
+    "date",
+    "journalType",
+    "compte",
+    "libelle",
+    "debit",
+    "credit"
+   ],
+   "section": "comptabilite"
+  },
+  "rhEmployes": {
+   "key": "rhEmployes",
+   "label": "Fiche employé",
+   "fields": [
+    {
+     "k": "matricule",
+     "l": "Matricule",
+     "t": "text"
+    },
+    {
+     "k": "nom",
+     "l": "Nom",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "prenom",
+     "l": "Prénom",
+     "t": "text"
+    },
+    {
+     "k": "poste",
+     "l": "Poste / Emploi",
+     "t": "text"
+    },
+    {
+     "k": "departement",
+     "l": "Département / Service",
+     "t": "text"
+    },
+    {
+     "k": "dateEmbauche",
+     "l": "Date embauche",
+     "t": "date"
+    },
+    {
+     "k": "contrat",
+     "l": "Type contrat",
+     "t": "select",
+     "opts": [
+      "CDI",
+      "CDD",
+      "Stage",
+      "Journalier"
+     ]
+    },
+    {
+     "k": "categorie",
+     "l": "Catégorie / Échelon",
+     "t": "text"
+    },
+    {
+     "k": "situationFamiliale",
+     "l": "Situation familiale",
+     "t": "select",
+     "opts": [
+      "Célibataire",
+      "Marié(e)",
+      "Divorcé(e)",
+      "Veuf(ve)"
+     ]
+    },
+    {
+     "k": "nombreEnfants",
+     "l": "Nombre d'enfants à charge",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "salaireBase",
+     "l": "Salaire de base",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "cnps",
+     "l": "N° CNPS",
+     "t": "text"
+    },
+    {
+     "k": "modePaiement",
+     "l": "Mode de paiement habituel",
+     "t": "select",
+     "opts": [
+      "Virement bancaire",
+      "Espèces",
+      "Mobile Money"
+     ]
+    },
+    {
+     "k": "compteBancaire",
+     "l": "N° compte bancaire / Mobile Money",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "matricule",
+    "nom",
+    "prenom",
+    "poste",
+    "salaireBase"
+   ],
+   "section": "rh"
+  },
+  "rhConges": {
+   "key": "rhConges",
+   "label": "Congés",
+   "fields": [
+    {
+     "k": "employe",
+     "l": "Employé",
+     "t": "dynselect",
+     "source": "rhEmployes",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "type",
+     "l": "Type congé",
+     "t": "select",
+     "opts": [
+      "Annuel",
+      "Maladie",
+      "Maternité",
+      "Sans solde"
+     ]
+    },
+    {
+     "k": "debut",
+     "l": "Date début",
+     "t": "date"
+    },
+    {
+     "k": "fin",
+     "l": "Date fin",
+     "t": "date"
+    },
+    {
+     "k": "statut",
+     "l": "Statut",
+     "t": "select",
+     "opts": [
+      "Demandé",
+      "Approuvé",
+      "Refusé"
+     ]
+    }
+   ],
+   "cols": [
+    "employe",
+    "type",
+    "debut",
+    "fin",
+    "statut"
+   ],
+   "section": "rh"
+  },
+  "rhAvances": {
+   "key": "rhAvances",
+   "label": "Avances sur salaire",
+   "fields": [
+    {
+     "k": "employe",
+     "l": "Employé",
+     "t": "dynselect",
+     "source": "rhEmployes",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "date",
+     "l": "Date",
+     "t": "date"
+    },
+    {
+     "k": "montant",
+     "l": "Montant avance",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "soldeRestant",
+     "l": "Solde restant dû",
+     "t": "number"
+    }
+   ],
+   "cols": [
+    "employe",
+    "date",
+    "montant",
+    "soldeRestant"
+   ],
+   "section": "rh"
+  },
+  "rhPrets": {
+   "key": "rhPrets",
+   "label": "Prêts",
+   "fields": [
+    {
+     "k": "employe",
+     "l": "Employé",
+     "t": "dynselect",
+     "source": "rhEmployes",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "date",
+     "l": "Date prêt",
+     "t": "date"
+    },
+    {
+     "k": "montant",
+     "l": "Montant",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "duree",
+     "l": "Durée (mois)",
+     "t": "number"
+    },
+    {
+     "k": "soldeRestant",
+     "l": "Solde restant dû",
+     "t": "number"
+    }
+   ],
+   "cols": [
+    "employe",
+    "montant",
+    "duree",
+    "soldeRestant"
+   ],
+   "section": "rh"
+  },
+  "rhEvaluation": {
+   "key": "rhEvaluation",
+   "label": "Évaluation",
+   "fields": [
+    {
+     "k": "employe",
+     "l": "Employé",
+     "t": "dynselect",
+     "source": "rhEmployes",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "periode",
+     "l": "Période",
+     "t": "text"
+    },
+    {
+     "k": "note",
+     "l": "Note globale (/20)",
+     "t": "number"
+    },
+    {
+     "k": "evaluePar",
+     "l": "Évalué par",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "employe",
+    "periode",
+    "note",
+    "evaluePar"
+   ],
+   "section": "rh"
+  },
+  "paieParametres": {
+   "key": "paieParametres",
+   "label": "Paie — Taux & plafonds",
+   "single": true,
+   "fields": [
+    {
+     "k": "tauxPF",
+     "l": "Prestations familiales (PF) — % (charge employeur)",
+     "t": "number"
+    },
+    {
+     "k": "tauxAM",
+     "l": "Assurance maternité (AM) — % (charge employeur)",
+     "t": "number"
+    },
+    {
+     "k": "tauxATMP",
+     "l": "Accidents du travail / maladies pro (AT/MP) — % (charge employeur, 2 à 5% selon secteur)",
+     "t": "number"
+    },
+    {
+     "k": "tauxRetraitePatronal",
+     "l": "Assurance vieillesse (Retraite) — part employeur (%)",
+     "t": "number"
+    },
+    {
+     "k": "tauxRetraiteSalarial",
+     "l": "Assurance vieillesse (Retraite) — part salarié (%)",
+     "t": "number"
+    },
+    {
+     "k": "plafondCnpsMensuel",
+     "l": "CNPS — plafond mensuel cotisable (FCFA)",
+     "t": "number"
+    },
+    {
+     "k": "plafondTransportExonere",
+     "l": "Indemnité transport exonérée jusqu'à (FCFA/mois)",
+     "t": "number"
+    },
+    {
+     "k": "cmuMontantParPersonne",
+     "l": "CMU — cotisation mensuelle par personne couverte (salarié + enfants à charge), FCFA",
+     "t": "number",
+     "def": 1000
+    },
+    {
+     "k": "cmuPartSalariePct",
+     "l": "CMU — part du salarié (%), le solde étant à la charge de l'employeur",
+     "t": "number",
+     "def": 50
+    },
+    {
+     "k": "joursCongesParMois",
+     "l": "Jours de congés acquis par mois (CDI/CDD, jours ouvrables) — cumulés d'un mois à l'autre sur le bulletin",
+     "t": "number",
+     "def": 2.2
+    }
+   ],
+   "section": "paie"
+  },
+  "baremeIts": {
+   "key": "baremeIts",
+   "label": "Barème ITS (impôt sur salaires)",
+   "fields": [
+    {
+     "k": "trancheMin",
+     "l": "Tranche mensuelle - de (FCFA)",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "trancheMax",
+     "l": "Tranche mensuelle - à (FCFA, 0 = illimité)",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "taux",
+     "l": "Taux (%)",
+     "t": "number",
+     "req": 1
+    }
+   ],
+   "cols": [
+    "trancheMin",
+    "trancheMax",
+    "taux"
+   ],
+   "section": "paie"
+  },
+  "paieCalcul": {
+   "key": "paieCalcul",
+   "label": "Bulletins de paie",
+   "fields": [
+    {
+     "k": "employe",
+     "l": "Employé",
+     "t": "dynselect",
+     "source": "rhEmployes",
+     "labelField": "nom",
+     "req": 1,
+     "autofill": "salaireCategoriel:salaireBase,situationFamiliale:situationFamiliale,nombreEnfants:nombreEnfants,typeContrat:contrat"
+    },
+    {
+     "k": "periode",
+     "l": "Période (MM/AAAA)",
+     "t": "text",
+     "req": 1
+    },
+    {
+     "k": "situationFamiliale",
+     "l": "Situation familiale",
+     "t": "select",
+     "opts": [
+      "Célibataire",
+      "Marié(e)",
+      "Divorcé(e)",
+      "Veuf(ve)"
+     ]
+    },
+    {
+     "k": "nombreEnfants",
+     "l": "Nombre d'enfants à charge",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "typeContrat",
+     "l": "Type de contrat",
+     "t": "select",
+     "opts": [
+      "CDI",
+      "CDD",
+      "Stage",
+      "Journalier"
+     ]
+    },
+    {
+     "k": "joursTravailles",
+     "l": "Nombre de jours travaillés (période)",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "joursCongesAcquis",
+     "l": "Jours de congés acquis ce mois — CDI/CDD (0 = taux mensuel des paramètres, 2,2 j par défaut)",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "salaireCategoriel",
+     "l": "Salaire catégoriel (base)",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "sursalaire",
+     "l": "Sursalaire",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "primeAnciennete",
+     "l": "Prime d'ancienneté",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "primeRendement",
+     "l": "Prime de rendement",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "indemniteLogement",
+     "l": "Indemnité de logement",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "indemniteTransport",
+     "l": "Indemnité de transport",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "autresIndemnites",
+     "l": "Autres indemnités imposables",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "heuresSupMontant",
+     "l": "Heures supplémentaires (montant)",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "avanceSurSalaire",
+     "l": "Avance sur salaire (retenue)",
+     "t": "number",
+     "def": 0
+    },
+    {
+     "k": "autresRetenues",
+     "l": "Autres retenues",
+     "t": "number",
+     "def": 0
+    }
+   ],
+   "cols": [
+    "employe",
+    "periode",
+    "joursTravailles",
+    "brutSocial",
+    "cnpsSalariale",
+    "its",
+    "netAPayer"
+   ],
+   "special": "paie",
+   "section": "paie"
+  },
+  "paiePrimes": {
+   "key": "paiePrimes",
+   "label": "Primes",
+   "fields": [
+    {
+     "k": "employe",
+     "l": "Employé",
+     "t": "dynselect",
+     "source": "rhEmployes",
+     "labelField": "nom",
+     "req": 1
+    },
+    {
+     "k": "type",
+     "l": "Type prime",
+     "t": "text"
+    },
+    {
+     "k": "montant",
+     "l": "Montant",
+     "t": "number",
+     "req": 1
+    },
+    {
+     "k": "periode",
+     "l": "Période",
+     "t": "text"
+    }
+   ],
+   "cols": [
+    "employe",
+    "type",
+    "montant",
+    "periode"
+   ],
+   "section": "paie"
+  }
+ },
+ "numeroPrefixes": {
+  "devis": "DV",
+  "bonsCommande": "BC",
+  "bonsLivraison": "BL",
+  "factures": "FA",
+  "avoirs": "AV",
+  "treso_caisse": "TK-CA",
+  "treso_sib": "TK-SIB",
+  "treso_baci": "TK-BACI",
+  "treso_boa": "TK-BOA",
+  "treso_ecobank": "TK-ECO",
+  "treso_nsia": "TK-NSIA",
+  "immobilisations": "IMMO",
+  "facturesAchat": "FA-ACH",
+  "reglements": "RG",
+  "virementsInternes": "VI",
+  "relevesBancaires": "REL"
+ }
+}

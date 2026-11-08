@@ -1,0 +1,41 @@
+# KAYELY GESTION PRO — configuration Apache (LWS)
+DirectoryIndex index.php
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # Dépôt Git éventuel et fichiers de sauvegarde : jamais exposés (défense en profondeur)
+  RewriteRule (?i)(^|/)\.git - [F]
+  # Toujours en HTTPS
+  RewriteCond %{HTTPS} off
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+  # Bibliothèques du navigateur (assets/) : fichiers servis tels quels
+  RewriteRule ^assets/ - [L]
+  # Toutes les adresses (accueil, console, /<code-société>/...) passent par index.php
+  RewriteCond %{REQUEST_URI} !(^|/)index\.php$
+  RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+# Fichiers internes jamais accessibles depuis le web
+<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|json|md|mjs|cjs|pem|key|log|txt)$">
+  Require all denied
+</FilesMatch>
+
+# Fichiers de sauvegarde ou d'éditeur (défense en profondeur)
+<FilesMatch "\.(bak|orig|save|swp|swo|old)$|~$">
+  Require all denied
+</FilesMatch>
+
+# Bibliothèques : mises en cache par le navigateur, type de contenu strict
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|traineddata)$">
+    Header set X-Content-Type-Options "nosniff"
+    Header set Cache-Control "public, max-age=604800"
+    Header set Cross-Origin-Resource-Policy "same-origin"
+  </FilesMatch>
+</IfModule>
+<IfModule mod_mime.c>
+  AddType application/javascript .js
+  AddType application/octet-stream .traineddata
+</IfModule>

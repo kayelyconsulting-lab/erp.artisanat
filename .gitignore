@@ -1,0 +1,23 @@
+# Secrets : ne jamais versionner de clé privée ni de fichier d'environnement
+*.pem
+*.key
+.env
+.env.*
+secrets/
+.kayely/
+
+# Dépendances et builds (Node / Electron)
+node_modules/
+dist/
+out/
+*.log
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+donnees/
+*.sqlite
+*.sqlite-*
+
+# Copie générée pour les tests PHP
+php/lib/kgpro.html
