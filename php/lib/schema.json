@@ -66,6 +66,21 @@
      "t": "number"
     },
     {
+     "k": "activite",
+     "l": "Activité principale",
+     "t": "text"
+    },
+    {
+     "k": "dirigeant",
+     "l": "Nom du dirigeant",
+     "t": "text"
+    },
+    {
+     "k": "centreImpots",
+     "l": "Centre des impôts de rattachement",
+     "t": "text"
+    },
+    {
      "k": "debutExercice",
      "l": "Début de l'exercice comptable en cours",
      "t": "date"

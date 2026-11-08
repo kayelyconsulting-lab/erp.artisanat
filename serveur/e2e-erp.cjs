@@ -326,6 +326,20 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   assert.match(releve, /RG-0001/); assert.match(releve, /CHQ-123/);
   const [popF] = await Promise.all([page.waitForEvent("popup"), ev(id => printFacture("factures", id), fact.id)]);
   await popF.waitForLoadState(); assert.match(await popF.content(), /Arrêtée la présente facture à la somme de/); await popF.close();
+  const li = await ev(async () => { const j = await getAll("journal");
+    const L = computeLiasse(j, "2026-01-01", "2026-12-31"), E = computeEtatsFinanciers(j, "2026-01-01", "2026-12-31");
+    return { ecart: L.ecart, xi: L.resultatNet, net: E.resultat.net, ca: E.resultat.ca, bilanEF: E.bilan.totalActif, bz: L.totalActif,
+      cj: L.passif.find(x => x.ref === "CJ").montant, xb: L.compteResultat.find(x => x.ref === "XB").montant }; });
+  assert.ok(Math.abs(li.ecart) < 0.01, "liasse : BZ = DZ (écart " + li.ecart + ")");
+  assert.equal(Math.round(li.xi), Math.round(li.net), "liasse : XI = résultat net des états financiers");
+  assert.equal(Math.round(li.cj), Math.round(li.xi), "liasse : CJ = XI");
+  assert.equal(Math.round(li.xb), Math.round(li.ca), "liasse : chiffre d'affaires XB");
+  await ev(() => renderRoute("liasseDsf"));
+  for (const onglet of ["actif", "passif", "resultat", "identification"]) await ev(o => { liasseOnglet = o; return renderLiasse(); }, onglet);
+  const [popL] = await Promise.all([page.waitForEvent("popup"), ev(() => renderLiasse("imprimer"))]);
+  await popL.waitForLoadState(); const htmlL = await popL.content(); await popL.close();
+  assert.match(htmlL, /TOTAL GÉNÉRAL/); assert.match(htmlL, /RÉSULTAT NET \(XG \+ XH \+ RQ \+ RS\)/);
+  ok("liasse DSF : BZ = DZ, XI = CJ = résultat net, XB = CA, 4 onglets et impression");
   ok("bilan équilibré, CA " + ef.resultat.ca + ", TVA due " + Math.round(tva.due) + ", pièce déséquilibrée refusée, relevé et facture en lettres");
 
   console.log("Clôture de période");

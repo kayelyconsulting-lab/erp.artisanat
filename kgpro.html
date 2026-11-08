@@ -449,6 +449,9 @@ const SECTIONS = [
           {k:"adresse",l:"Adresse",t:"text"},{k:"ville",l:"Ville",t:"text"},
           {k:"tel",l:"Téléphone",t:"text"},{k:"email",l:"Email",t:"text"},
           {k:"capital",l:"Capital social (FCFA)",t:"number"},
+          {k:"activite",l:"Activité principale",t:"text"},
+          {k:"dirigeant",l:"Nom du dirigeant",t:"text"},
+          {k:"centreImpots",l:"Centre des impôts de rattachement",t:"text"},
           {k:"debutExercice",l:"Début de l'exercice comptable en cours",t:"date"},
           {k:"dateCloture",l:"Période comptable clôturée jusqu'au (inclus) — plus aucune modification avant cette date",t:"date"} ] },
       { key:"utilisateurs", label:"Utilisateurs", fields:[
@@ -646,6 +649,7 @@ const SECTIONS = [
       { key:"dashboardCompta", label:"Tableau de bord comptable", readonly:"dashboardCompta" },
       { key:"etatsFinanciers", label:"États financiers (Bilan, Résultat)", readonly:"etats" },
       { key:"declarationTva", label:"Déclaration de TVA", readonly:"tva" },
+      { key:"liasseDsf", label:"Liasse fiscale DSF (DGI Côte d'Ivoire)", readonly:"liasse" },
   ]},
   { id:"rh", num:"09", label:"Ressources Humaines", icon:"👨‍💼", modules:[
       { key:"rhEmployes", label:"Fiche employé", fields:[
@@ -1641,6 +1645,7 @@ async function renderRoute(moduleKey){
   if (entry.mod.readonly === "etats") return renderEtatsFinanciers();
   if (entry.mod.readonly === "tva") return renderDeclarationTva();
   if (entry.mod.readonly === "soldesTreso") return renderSoldesTresorerie();
+  if (entry.mod.readonly === "liasse") return renderLiasse();
   if (entry.mod.readonly === "rapprochementAuto") return renderRapprochementAuto();
   if (entry.mod.single) return renderSingleForm(entry.mod);
   return renderModuleList(entry.mod);
@@ -4224,6 +4229,271 @@ async function renderRapprochementAuto(imprimer){
       ${sit.suspens.map(e => `<tr><td>${esc(fmtDateFr(e.date))}</td><td>${esc(e.piece||"")}</td><td>${esc(e.libelle||"")}</td><td>${fmt((Number(e.debit)||0)-(Number(e.credit)||0))}</td></tr>`).join("")}
     </tbody></table></div>` : ""}`}`;
 }
+
+/* ---------------------------------------------------------
+   LIASSE FISCALE DSF — SYSCOHADA RÉVISÉ, SYSTÈME NORMAL (DGI Côte d'Ivoire)
+   Bilan (références AD à BZ / CA à DZ) et compte de résultat (TA à XI) calculés
+   compte par compte depuis le Journal, exercice N et N-1.
+   --------------------------------------------------------- */
+const LIASSE_IMMO = [
+  ["AE","Frais de développement et de prospection",["211"]],
+  ["AF","Brevets, licences, logiciels et droits similaires",["212","213","214"]],
+  ["AG","Fonds commercial et droit au bail",["215","216"]],
+  ["AH","Autres immobilisations incorporelles",["217","218","219","20"]],
+  ["AJ","Terrains",["22"]],
+  ["AK","Bâtiments",["231","232","233"]],
+  ["AL","Aménagements, agencements et installations",["234","235","236","237","238","239"]],
+  ["AM","Matériel, mobilier et actifs biologiques",["241","242","243","244","246","247","248","249"]],
+  ["AN","Matériel de transport",["245"]],
+  ["AP","Avances et acomptes versés sur immobilisations",["25"]],
+  ["AR","Titres de participation",["26"]],
+  ["AS","Autres immobilisations financières",["27"]],
+];
+const LIASSE_PASSIF_FIXE = [   // [ref, libellé, préfixes (solde créditeur)]
+  ["CA","Capital",["101","102","103","104","10"]], ["CB","Apporteurs capital non appelé (-)",["109"]],
+  ["CD","Primes liées au capital social",["105"]], ["CE","Écarts de réévaluation",["106"]],
+  ["CF","Réserves indisponibles",["111","112","113"]], ["CG","Réserves libres",["118","11"]],
+  ["CH","Report à nouveau (+ ou -)",["12"]], ["CJ","Résultat net de l'exercice (bénéfice + ou perte -)",["13"]],
+  ["CL","Subventions d'investissement",["14"]], ["CM","Provisions réglementées",["15"]],
+  ["DA","Emprunts et dettes financières diverses",["16","18"]], ["DB","Dettes de location-acquisition",["17"]],
+  ["DC","Provisions pour risques et charges",["19"]],
+];
+const LIASSE_RESULTAT = [      // [ref, libellé, préfixes, sens : +1 produit / -1 charge]
+  ["TA","Ventes de marchandises",["701"],1], ["RA","Achats de marchandises",["601"],-1], ["RB","Variation de stocks de marchandises",["6031"],-1],
+  ["TB","Ventes de produits fabriqués",["702","703","704"],1], ["TC","Travaux, services vendus",["705","706"],1], ["TD","Produits accessoires",["707","70"],1],
+  ["TE","Production stockée (ou déstockage)",["73"],1], ["TF","Production immobilisée",["72"],1], ["TG","Subventions d'exploitation",["71"],1],
+  ["TH","Autres produits",["75"],1], ["TI","Transferts de charges d'exploitation",["781","78"],1],
+  ["RC","Achats de matières premières et fournitures liées",["602"],-1], ["RD","Variation de stocks de matières premières et fournitures liées",["6032"],-1],
+  ["RE","Autres achats",["604","605","608","609","60"],-1], ["RF","Variation de stocks d'autres approvisionnements",["6033"],-1],
+  ["RG","Transports",["61"],-1], ["RH","Services extérieurs",["62","63"],-1], ["RI","Impôts et taxes",["64"],-1], ["RJ","Autres charges",["65"],-1],
+  ["RK","Charges de personnel",["66"],-1],
+  ["TJ","Reprises d'amortissements, provisions et dépréciations",["791","798","799","79"],1],
+  ["RL","Dotations aux amortissements, aux provisions et dépréciations",["681","691","68","69"],-1],
+  ["TK","Revenus financiers et assimilés",["77"],1], ["TL","Reprises de provisions et dépréciations financières",["797"],1],
+  ["TM","Transferts de charges financières",["787"],1], ["RM","Frais financiers et charges assimilées",["67"],-1],
+  ["RN","Dotations aux provisions et aux dépréciations financières",["697"],-1],
+  ["TN","Produits des cessions d'immobilisations",["82"],1], ["TO","Autres produits HAO",["84","86","88","8"],1],
+  ["RO","Valeurs comptables des cessions d'immobilisations",["81"],-1], ["RP","Autres charges HAO",["83","85"],-1],
+  ["RQ","Participation des travailleurs",["87"],-1], ["RS","Impôts sur le résultat",["89"],-1],
+];
+/* Plus long préfixe correspondant parmi une liste de [clé, préfixes]. */
+function liassePrefixe(compte, table){
+  let meilleur = null, long = 0;
+  for (const [ref, , prefixes] of table) for (const pr of prefixes){
+    if (compte.startsWith(pr) && pr.length > long){ meilleur = ref; long = pr.length; }
+  }
+  return meilleur;
+}
+function computeLiasse(journal, du, au){
+  const soldes = {};       // classes 1 à 5 : cumul jusqu'à « au » (débit - crédit)
+  const resultat = {};     // classes 6 à 8 : mouvements de la période (débit - crédit)
+  let resultatsAnterieurs = 0;
+  journal.forEach(e => {
+    if (!e.date || e.date > au) return;
+    const c = String(e.compte||"").trim(), cl = c.charAt(0), mvt = (Number(e.debit)||0) - (Number(e.credit)||0);
+    if (!/^\d/.test(c)) return;
+    if ("12345".includes(cl)) soldes[c] = (soldes[c]||0) + mvt;
+    else if ("678".includes(cl)){ if (e.date < du) resultatsAnterieurs -= mvt; else resultat[c] = (resultat[c]||0) + mvt; }
+  });
+  const L = {};            // montants par référence
+  const add = (ref, v) => { L[ref] = (L[ref]||0) + v; };
+  // ---- Compte de résultat
+  const crTable = LIASSE_RESULTAT.map(([ref, lib, pr]) => [ref, lib, pr]);
+  for (const [c, mvt] of Object.entries(resultat)){
+    let ref = liassePrefixe(c, crTable);
+    if (!ref) ref = c.charAt(0) === "6" ? "RJ" : c.charAt(0) === "7" ? "TH" : (mvt > 0 ? "RP" : "TO");
+    add(ref, -mvt);       // produit : crédit - débit (positif) ; charge : négatif
+  }
+  const v = r => L[r] || 0, somme = refs => refs.reduce((s, r) => s + v(r), 0);
+  L.XA = somme(["TA","RA","RB"]);
+  L.XB = somme(["TA","TB","TC","TD"]);
+  L.XC = L.XB + somme(["RA","RB","TE","TF","TG","TH","TI","RC","RD","RE","RF","RG","RH","RI","RJ"]);
+  L.XD = L.XC + v("RK");
+  L.XE = L.XD + somme(["TJ","RL"]);
+  L.XF = somme(["TK","TL","TM","RM","RN"]);
+  L.XG = L.XE + L.XF;
+  L.XH = somme(["TN","TO","RO","RP"]);
+  L.XI = L.XG + L.XH + somme(["RQ","RS"]);
+  // ---- Actif immobilisé (brut / amortissements et dépréciations)
+  const brut = {}, amort = {};
+  for (const [c, sd] of Object.entries(soldes)){
+    if (c.charAt(0) !== "2") continue;
+    if (c.startsWith("28") || c.startsWith("29")){
+      const ref = liassePrefixe("2" + c.slice(2), LIASSE_IMMO) || "AH";
+      amort[ref] = (amort[ref]||0) - sd;
+    } else {
+      const ref = liassePrefixe(c, LIASSE_IMMO) || "AH";
+      brut[ref] = (brut[ref]||0) + sd;
+    }
+  }
+  // ---- Actif circulant, trésorerie, passif
+  const passifFixe = {};
+  const ajoutP = (ref, x) => { passifFixe[ref] = (passifFixe[ref]||0) + x; };
+  for (const [c, sd] of Object.entries(soldes)){
+    const cl = c.charAt(0);
+    if (cl === "1"){ ajoutP(liassePrefixe(c, LIASSE_PASSIF_FIXE) || "DA", -sd); continue; }
+    if (cl === "3"){
+      if (c.startsWith("39")){ amort.BB = (amort.BB||0) - sd; } else { brut.BB = (brut.BB||0) + sd; }
+      continue;
+    }
+    if (cl === "4"){
+      if (c.startsWith("49")){ const r = c.startsWith("491") ? "BI" : c.startsWith("499") ? null : "BJ";
+        if (r){ amort[r] = (amort[r]||0) - sd; } else ajoutP("DN", -sd); continue; }
+      if (c.startsWith("478")){ brut.BU = (brut.BU||0) + sd; continue; }
+      if (c.startsWith("479")){ ajoutP("DV", -sd); continue; }
+      if (sd >= 0){
+        const r = /^48[58]/.test(c) ? "BA" : c.startsWith("409") ? "BH" : (c.startsWith("41") && !c.startsWith("419")) ? "BI" : "BJ";
+        brut[r] = (brut[r]||0) + sd;
+      } else {
+        const r = /^48[124]/.test(c) ? "DH" : (c.startsWith("419") || c.startsWith("41")) ? "DI" : c.startsWith("40") ? "DJ"
+          : /^4[234]/.test(c) ? "DK" : "DM";
+        ajoutP(r, -sd);
+      }
+      continue;
+    }
+    if (cl === "5"){
+      if (c.startsWith("59")){ amort.BQ = (amort.BQ||0) - sd; continue; }
+      if (sd >= 0){ const r = c.startsWith("50") ? "BQ" : c.startsWith("51") ? "BR" : "BS"; brut[r] = (brut[r]||0) + sd; }
+      else ajoutP(/^56[45]/.test(c) ? "DQ" : "DR", -sd);
+    }
+  }
+  // Résultat de l'exercice et résultats antérieurs non affectés
+  ajoutP("CJ", L.XI);
+  ajoutP("CH", resultatsAnterieurs);
+  // ---- Mise en forme
+  const ligneA = (ref, lib, total) => ({ ref, libelle: lib, brut: brut[ref]||0, amort: amort[ref]||0, net: (brut[ref]||0) - (amort[ref]||0), total: !!total });
+  const totalA = (ref, lib, refs) => { const t = { ref, libelle: lib, brut:0, amort:0, net:0, total:true };
+    refs.forEach(r => { const x = actifParRef[r]; if (x){ t.brut += x.brut; t.amort += x.amort; t.net += x.net; } }); actifParRef[ref] = t; return t; };
+  const actifParRef = {};
+  const mk = (ref, lib) => { const x = ligneA(ref, lib); actifParRef[ref] = x; return x; };
+  const imm = LIASSE_IMMO.reduce((o, [ref, lib]) => { o[ref] = mk(ref, lib); return o; }, {});
+  const actif = [
+    totalA("AD","IMMOBILISATIONS INCORPORELLES",["AE","AF","AG","AH"]), imm.AE, imm.AF, imm.AG, imm.AH,
+    totalA("AI","IMMOBILISATIONS CORPORELLES",["AJ","AK","AL","AM","AN"]), imm.AJ, imm.AK, imm.AL, imm.AM, imm.AN,
+    imm.AP,
+    totalA("AQ","IMMOBILISATIONS FINANCIÈRES",["AR","AS"]), imm.AR, imm.AS,
+  ];
+  actif.push(totalA("AZ","TOTAL ACTIF IMMOBILISÉ",["AD","AI","AP","AQ"]));
+  const ba = mk("BA","Actif circulant HAO"), bb = mk("BB","Stocks et encours");
+  const bh = mk("BH","Fournisseurs, avances versées"), bi = mk("BI","Clients"), bj = mk("BJ","Autres créances");
+  actif.push(ba, bb, totalA("BG","CRÉANCES ET EMPLOIS ASSIMILÉS",["BH","BI","BJ"]), bh, bi, bj,
+    totalA("BK","TOTAL ACTIF CIRCULANT",["BA","BB","BG"]));
+  const bq = mk("BQ","Titres de placement"), br = mk("BR","Valeurs à encaisser"), bs = mk("BS","Banques, chèques postaux, caisse et assimilés");
+  actif.push(bq, br, bs, totalA("BT","TOTAL TRÉSORERIE-ACTIF",["BQ","BR","BS"]));
+  actif.push(mk("BU","Écart de conversion-Actif"), totalA("BZ","TOTAL GÉNÉRAL",["AZ","BK","BT","BU"]));
+
+  const P = r => passifFixe[r] || 0;
+  const lp = (ref, lib, montant, total) => ({ ref, libelle: lib, montant, total: !!total });
+  const libP = Object.fromEntries(LIASSE_PASSIF_FIXE.map(([r, l]) => [r, l]));
+  const CP = ["CA","CB","CD","CE","CF","CG","CH","CJ","CL","CM"].reduce((s,r) => s + P(r), 0);
+  const DD = ["DA","DB","DC"].reduce((s,r) => s + P(r), 0);
+  const DP = ["DH","DI","DJ","DK","DM","DN"].reduce((s,r) => s + P(r), 0);
+  const DT = P("DQ") + P("DR");
+  const passif = [
+    ...["CA","CB","CD","CE","CF","CG","CH","CJ","CL","CM"].map(r => lp(r, libP[r], P(r))),
+    lp("CP","TOTAL CAPITAUX PROPRES ET RESSOURCES ASSIMILÉES", CP, true),
+    ...["DA","DB","DC"].map(r => lp(r, libP[r], P(r))),
+    lp("DD","TOTAL DETTES FINANCIÈRES ET RESSOURCES ASSIMILÉES", DD, true),
+    lp("DF","TOTAL RESSOURCES STABLES", CP + DD, true),
+    lp("DH","Dettes circulantes HAO", P("DH")), lp("DI","Clients, avances reçues", P("DI")),
+    lp("DJ","Fournisseurs d'exploitation", P("DJ")), lp("DK","Dettes fiscales et sociales", P("DK")),
+    lp("DM","Autres dettes", P("DM")), lp("DN","Provisions pour risques à court terme", P("DN")),
+    lp("DP","TOTAL PASSIF CIRCULANT", DP, true),
+    lp("DQ","Banques, crédits d'escompte", P("DQ")), lp("DR","Banques, établissements financiers et crédits de trésorerie", P("DR")),
+    lp("DT","TOTAL TRÉSORERIE-PASSIF", DT, true),
+    lp("DV","Écart de conversion-Passif", P("DV")),
+    lp("DZ","TOTAL GÉNÉRAL", CP + DD + DP + DT + P("DV"), true),
+  ];
+  const libCR = Object.fromEntries(LIASSE_RESULTAT.map(([r, l]) => [r, l]));
+  const cr = (ref, total) => ({ ref, libelle: total || libCR[ref], montant: v(ref), total: !!total });
+  const compteResultat = [
+    cr("TA"), cr("RA"), cr("RB"), cr("XA","MARGE COMMERCIALE (Somme TA à RB)"),
+    cr("TB"), cr("TC"), cr("TD"), cr("XB","CHIFFRE D'AFFAIRES (A + B + C + D)"),
+    cr("TE"), cr("TF"), cr("TG"), cr("TH"), cr("TI"),
+    cr("RC"), cr("RD"), cr("RE"), cr("RF"), cr("RG"), cr("RH"), cr("RI"), cr("RJ"),
+    cr("XC","VALEUR AJOUTÉE (XB + RA + RB) + (somme TE à RJ)"), cr("RK"), cr("XD","EXCÉDENT BRUT D'EXPLOITATION (XC + RK)"),
+    cr("TJ"), cr("RL"), cr("XE","RÉSULTAT D'EXPLOITATION (XD + TJ + RL)"),
+    cr("TK"), cr("TL"), cr("TM"), cr("RM"), cr("RN"), cr("XF","RÉSULTAT FINANCIER (somme TK à RN)"),
+    cr("XG","RÉSULTAT DES ACTIVITÉS ORDINAIRES (XE + XF)"),
+    cr("TN"), cr("TO"), cr("RO"), cr("RP"), cr("XH","RÉSULTAT HORS ACTIVITÉS ORDINAIRES (somme TN à RP)"),
+    cr("RQ"), cr("RS"), cr("XI","RÉSULTAT NET (XG + XH + RQ + RS)"),
+  ];
+  const totalActif = actifParRef.BZ.net, totalPassif = passif[passif.length - 1].montant;
+  return { actif, passif, compteResultat, totalActif, totalPassif, ecart: totalActif - totalPassif, resultatNet: L.XI };
+}
+function anneeAvant(iso){ const [a, m, j] = iso.split("-").map(Number); const d = new Date(a - 1, m - 1, j);
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
+
+let liasseOnglet = "identification";
+async function renderLiasse(action){
+  const { du, au } = await getPeriodeCompta();
+  const [journal, soc] = await Promise.all([getAllSafe("journal"), getAllSafe("societe").then(r => r[0] || {})]);
+  const N = computeLiasse(journal, du, au), N1 = computeLiasse(journal, anneeAvant(du), anneeAvant(au));
+  const exN = new Date(au + "T00:00:00").getFullYear(), exN1 = exN - 1;
+  const ident = [
+    ["Désignation de l'entité", soc.raison], ["Sigle", soc.sigle], ["Forme juridique", soc.forme],
+    ["N° de compte contribuable (NCC)", soc.cc], ["N° RCCM", soc.rccm], ["Régime fiscal", soc.regime],
+    ["Centre des impôts", soc.centreImpots], ["Activité principale", soc.activite], ["Dirigeant", soc.dirigeant],
+    ["Adresse", [soc.adresse, soc.ville].filter(Boolean).join(", ")], ["Téléphone", soc.tel], ["Email", soc.email],
+    ["Capital social", soc.capital ? fmt(soc.capital) : ""],
+    ["Exercice", "du " + fmtDateFr(du) + " au " + fmtDateFr(au)],
+    ["Durée (mois)", String(Math.round((new Date(au) - new Date(du)) / (30.44 * 86400000)))],
+  ];
+  const manquants = ident.filter(([l, x]) => !x && !["Sigle","Email","Dirigeant"].includes(l)).map(([l]) => l);
+  const n0 = x => x ? fmt(x) : "";
+  const tabIdent = `<table><tbody>${ident.map(([l, x]) => `<tr><td style="width:40%">${esc(l)}</td><td><b>${esc(x||"")}</b></td></tr>`).join("")}</tbody></table>`;
+  const par = (liste) => Object.fromEntries(liste.map(x => [x.ref, x]));
+  const aN1 = par(N1.actif), pN1 = par(N1.passif), rN1 = par(N1.compteResultat);
+  const st = t => t ? ' style="font-weight:700; background:#F4F6FA;"' : "";
+  const tabActif = `<table><thead><tr><th>Réf</th><th>ACTIF</th><th>Brut</th><th>Amort. / Dépréc.</th><th>Net ${exN}</th><th>Net ${exN1}</th></tr></thead><tbody>
+    ${N.actif.map(x => `<tr${st(x.total)}><td>${x.ref}</td><td>${esc(x.libelle)}</td><td class="n num">${n0(x.brut)}</td><td class="n num">${n0(x.amort)}</td><td class="n num">${n0(x.net)}</td><td class="n num">${n0(aN1[x.ref] && aN1[x.ref].net)}</td></tr>`).join("")}</tbody></table>`;
+  const tabPassif = `<table><thead><tr><th>Réf</th><th>PASSIF</th><th>Exercice ${exN}</th><th>Exercice ${exN1}</th></tr></thead><tbody>
+    ${N.passif.map(x => `<tr${st(x.total)}><td>${x.ref}</td><td>${esc(x.libelle)}</td><td class="n num">${n0(x.montant)}</td><td class="n num">${n0(pN1[x.ref] && pN1[x.ref].montant)}</td></tr>`).join("")}</tbody></table>`;
+  const tabCR = `<table><thead><tr><th>Réf</th><th>COMPTE DE RÉSULTAT</th><th>Exercice ${exN}</th><th>Exercice ${exN1}</th></tr></thead><tbody>
+    ${N.compteResultat.map(x => `<tr${st(x.total)}><td>${x.ref}</td><td>${esc(x.libelle)}</td><td class="n num">${n0(x.montant)}</td><td class="n num">${n0(rN1[x.ref] && rN1[x.ref].montant)}</td></tr>`).join("")}</tbody></table>`;
+  const controles = `<div>${Math.abs(N.ecart) < 0.5 ? "✅ Bilan équilibré (BZ = DZ)" : "⚠️ Bilan déséquilibré : BZ - DZ = " + fmt(N.ecart)}
+    — Résultat net (XI) : <b>${fmt(N.resultatNet)}</b> = ligne CJ du passif.</div>`;
+  const entete = `<h1>${esc(soc.raison || "")} — Liasse fiscale DSF ${exN}</h1>
+    <div class="sub">SYSCOHADA révisé — Système normal — Exercice du ${fmtDateFr(du)} au ${fmtDateFr(au)}${soc.cc ? " — NCC " + esc(soc.cc) : ""}</div>`;
+
+  if (action === "imprimer"){
+    ouvrirImpression("Liasse DSF " + exN, `${entete}
+      <h2>Fiche d'identification</h2>${tabIdent}
+      <h2 style="page-break-before:always;">Bilan — Actif</h2>${tabActif}
+      <h2 style="page-break-before:always;">Bilan — Passif</h2>${tabPassif}
+      <h2 style="page-break-before:always;">Compte de résultat</h2>${tabCR}${controles}
+      <div class="sub" style="margin-top:12px;">Établi à partir du Journal. À vérifier et compléter (tableau des flux de trésorerie, notes annexes) avec votre expert-comptable avant dépôt sur e-impots.gouv.ci.</div>`);
+    return;
+  }
+  if (action === "excel"){
+    if (typeof XLSX === "undefined"){ toast("Bibliothèque Excel indisponible (vérifiez la connexion internet)"); return; }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ident.map(([l, x]) => ({ "Rubrique": l, "Valeur": x || "" }))), "Identification");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(N.actif.map(x => ({ "Réf": x.ref, "Actif": x.libelle, "Brut": x.brut, "Amort/Dépréc": x.amort, ["Net " + exN]: x.net, ["Net " + exN1]: aN1[x.ref] ? aN1[x.ref].net : 0 }))), "Bilan actif");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(N.passif.map(x => ({ "Réf": x.ref, "Passif": x.libelle, [String(exN)]: x.montant, [String(exN1)]: pN1[x.ref] ? pN1[x.ref].montant : 0 }))), "Bilan passif");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(N.compteResultat.map(x => ({ "Réf": x.ref, "Compte de résultat": x.libelle, [String(exN)]: x.montant, [String(exN1)]: rN1[x.ref] ? rN1[x.ref].montant : 0 }))), "Compte de résultat");
+    XLSX.writeFile(wb, "Liasse DSF " + exN + ".xlsx");
+    toast("Liasse exportée vers Excel");
+    return;
+  }
+  const onglets = [["identification","Fiche d'identification"],["actif","Bilan actif"],["passif","Bilan passif"],["resultat","Compte de résultat"]];
+  const contenu = { identification: tabIdent, actif: tabActif, passif: tabPassif, resultat: tabCR }[liasseOnglet];
+  document.getElementById("content").innerHTML = `
+    <h1 class="page-title">Liasse fiscale DSF — SYSCOHADA révisé (système normal)</h1>
+    <div class="page-sub">Exercice du ${fmtDateFr(du)} au ${fmtDateFr(au)}, comparé à ${exN1} — références de lignes de la DGI, montants calculés depuis le Journal</div>
+    ${periodeToolbar("renderLiasse")}
+    <div class="toolbar" style="display:flex; gap:8px; flex-wrap:wrap;">
+      ${onglets.map(([k, l]) => `<button class="btn small ${k===liasseOnglet ? "gold" : "ghost"}" onclick="liasseOnglet='${k}'; renderLiasse()">${l}</button>`).join("")}
+      <button class="btn small" onclick="renderLiasse('imprimer')">🖨️ Imprimer la liasse</button>
+      <button class="btn small ghost" onclick="renderLiasse('excel')">⬇️ Exporter Excel</button>
+    </div>
+    ${manquants.length ? `<div class="page-sub"><span class="badge warn">À compléter dans Paramètres &gt; Société : ${esc(manquants.join(", "))}</span></div>` : ""}
+    <div class="table-wrap">${contenu}</div>
+    <div class="page-sub" style="margin-top:8px;">${controles}</div>
+    <div class="page-sub">Le tableau des flux de trésorerie et les notes annexes ne sont pas générés : à compléter avec votre expert-comptable avant dépôt sur e-impôts.</div>`;
+  await syncPeriodeInputs();
+}
+window.renderLiasse = renderLiasse;
 
 /* ---------------------------------------------------------
    PÉRIODE COMPTABLE (filtres du / au), utilitaires

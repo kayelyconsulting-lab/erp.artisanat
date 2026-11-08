@@ -58,6 +58,13 @@ Toutes les clés émises restent listées dans la console.
 * **Clôture de période :** Paramètres → Société → « Période comptable clôturée jusqu'au ». Plus aucune pièce datée avant cette date ne peut être créée, modifiée ni supprimée, et c'est le serveur qui l'impose. Seul l'administrateur peut rouvrir une période.
 * **Exercice :** Paramètres → Société → « Début de l'exercice comptable en cours » sert de période par défaut aux rapports.
 * **États financiers :** Comptabilité → Bilan et Compte de résultat SYSCOHADA (présentation simplifiée), imprimables.
+* **Liasse fiscale DSF :** Comptabilité → Liasse fiscale DSF (DGI Côte d'Ivoire), au format SYSCOHADA révisé, système normal :
+  * fiche d'identification (à compléter dans Paramètres → Société : NCC, RCCM, régime, centre des impôts, activité…) ;
+  * bilan actif (AD → BZ : brut, amortissements, net) et bilan passif (CA → DZ) ;
+  * compte de résultat (TA → XI, avec les soldes intermédiaires) ;
+  * exercices N et N-1 côte à côte, contrôle BZ = DZ, impression et export Excel.
+
+  Le tableau des flux de trésorerie et les notes annexes restent à compléter avec l'expert-comptable.
 * **Déclaration de TVA :** Comptabilité → choisir le mois → TVA collectée, déductible, à payer ou crédit.
 * **Grand livre et balance :** filtre du / au, report à nouveau, intitulés des comptes, export Excel.
 * **Journal :** « Saisir une pièce » sur plusieurs lignes ; une pièce déséquilibrée est refusée.
