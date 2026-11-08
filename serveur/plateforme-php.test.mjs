@@ -151,3 +151,17 @@ test("clés d'activation émises par la console", { skip }, async () => {
   const hist = (await consoleClient("GET", "/console/api/licences")).data.licences;
   assert.equal(hist.length, 2);
 });
+
+test("mot de passe de la console oublié : réinitialisation par fichier", { skip }, async () => {
+  const avant = (await (async () => { await consoleLogin(); return (await consoleClient("GET", "/console/api/societes")).data.length; })());
+  fs.writeFileSync(path.join(DATA, "REINITIALISER-CONSOLE"), "");
+  const st = await client()("GET", "/console/api/status");
+  assert.equal(st.data.configured, false);
+  assert.equal(fs.existsSync(path.join(DATA, "REINITIALISER-CONSOLE")), false, "fichier de demande supprimé");
+  assert.equal((await client()("POST", "/console/api/login", { password: process.env.KGP_CONSOLE_PASSWORD })).status, 409, "ancien mot de passe inutilisable");
+  assert.equal((await consoleClient("GET", "/console/api/societes")).status, 401, "anciennes sessions fermées");
+  const code = /^\s{4}([A-F0-9]{10})$/m.exec(fs.readFileSync(path.join(DATA, "CODE-CONSOLE.txt"), "utf8"))[1];
+  assert.equal((await consoleClient("POST", "/console/api/setup", { code, password: process.env.KGP_CONSOLE_PASSWORD })).status, 200);
+  assert.equal((await consoleClient("GET", "/console/api/societes")).data.length, avant, "sociétés conservées");
+  assert.equal((await client()("GET", "/alpha/api/status")).status, 200, "sociétés toujours accessibles");
+});

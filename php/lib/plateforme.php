@@ -75,6 +75,23 @@ function kgp_console_code(): string {
   return $m[1] ?? '';
 }
 
+/* Mot de passe de la console oublié : le propriétaire de l'hébergement crée, avec le
+   Gestionnaire de fichiers, un fichier « REINITIALISER-CONSOLE » dans le dossier des
+   données. La console repasse alors en première configuration (nouveau code
+   d'installation). Sociétés, données et clé de signature des licences sont conservées. */
+function kgp_console_reinitialisation_demandee(): void {
+  $dir = kgp_data_dir();
+  $fichiers = is_dir($dir) ? preg_grep('/^reinitialiser[-_ ]?console(\.txt)?$/i', scandir($dir) ?: []) : [];
+  if (!$fichiers) return;
+  $db = kgp_platform_db();
+  $db->prepare('DELETE FROM config WHERE k = ?')->execute(['console_password']);
+  $db->exec('DELETE FROM console_sessions');
+  $db->exec('DELETE FROM console_fails');
+  foreach ($fichiers as $f) @unlink($dir . '/' . $f);
+  @unlink(kgp_console_code_file());   // un nouveau code sera généré
+  kgp_console_audit('reset-console', 'fichier REINITIALISER-CONSOLE');
+}
+
 function kgp_console_cookie(string $value, int $maxAge, string $base): void {
   setcookie(KGP_CONSOLE_COOKIE, $value, [
     'expires' => $maxAge > 0 ? time() + $maxAge : time() - 3600,
@@ -141,6 +158,7 @@ function kgp_handle_console_api(string $p, string $base): void {
   try {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     kgp_assert_same_origin($method);
+    kgp_console_reinitialisation_demandee();
     $configured = kgp_config_get('console_password') !== null;
 
     if ($p === '/api/status' && $method === 'GET'){

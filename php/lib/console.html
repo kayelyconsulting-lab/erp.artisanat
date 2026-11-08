@@ -47,7 +47,7 @@
   <!-- Première configuration -->
   <form class="card narrow hidden" id="setupView">
     <h2>Configurer la console</h2>
-    <p class="sub">Dans le <b>Gestionnaire de fichiers</b> LWS, ouvrez le dossier <code>kgpro-donnees</code> et le fichier <code>CODE-CONSOLE.txt</code> : il contient le code d'installation. Choisissez ensuite le mot de passe de la console (10 caractères minimum).</p>
+    <p class="sub">Dans le <b>Gestionnaire de fichiers</b> LWS, ouvrez le dossier des données (<code>donnees</code> à côté de <code>index.php</code>, ou <code>kgpro-donnees</code>) et le fichier <code>CODE-CONSOLE.txt</code> : il contient le code d'installation. Choisissez ensuite le mot de passe de la console (10 caractères minimum).</p>
     <div class="msg" id="setupMsg"></div>
     <label>Code d'installation</label><input id="setupCode" autocomplete="off" autocapitalize="characters">
     <label>Nouveau mot de passe de la console</label><input id="setupPass" type="password" autocomplete="new-password">
@@ -62,6 +62,15 @@
     <div class="msg" id="loginMsg"></div>
     <label>Mot de passe de la console</label><input id="loginPass" type="password" autocomplete="current-password">
     <button class="gold full" type="submit">Se connecter</button>
+    <details style="margin-top:16px; font-size:13px; color:var(--soft); line-height:1.5;">
+      <summary style="cursor:pointer; color:var(--navy); font-weight:600;">Mot de passe oublié ?</summary>
+      <ol style="padding-left:18px; margin:8px 0 0;">
+        <li>Dans LWS Panel, ouvrez le <b>Gestionnaire de fichiers</b>, puis le dossier des données (<code>donnees</code> à côté de <code>index.php</code>, ou <code>kgpro-donnees</code>).</li>
+        <li>Cliquez sur « + Fichier » et créez un fichier nommé <code>REINITIALISER-CONSOLE</code> (vide).</li>
+        <li>Rechargez cette page : la console repasse en configuration. Le nouveau code d'installation est dans <code>CODE-CONSOLE.txt</code>, dans le même dossier.</li>
+      </ol>
+      Vos sociétés, leurs données et la clé de signature des licences sont conservées.
+    </details>
   </form>
 
   <!-- Gestion des sociétés -->

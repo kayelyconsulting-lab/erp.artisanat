@@ -96,6 +96,11 @@ Envoyez le nouveau ZIP dans `htdocs/erp` et extrayez-le en écrasant les fichier
 * **« Le serveur de l'application ne répond pas… (404) »** : le fichier `.htaccess` manque à côté de `index.php` (affichez les fichiers cachés).
 * **« Aucune société ne correspond à cette adresse »** : le code dans l'adresse est faux, ou la société n'a pas été créée dans la console.
 * **Un administrateur a perdu son code secret** : console → « Code admin oublié » → transmettez-lui le code provisoire (il devra le changer).
+* **Mot de passe de la console oublié** :
+  1. Dans le Gestionnaire de fichiers, créez un fichier vide nommé `REINITIALISER-CONSOLE` dans le dossier des données (`donnees` à côté de `index.php`, ou `kgpro-donnees`).
+  2. Rechargez la console : elle repasse en configuration avec un nouveau code dans `CODE-CONSOLE.txt`.
+
+  Les sociétés, leurs données et la clé de signature des licences sont conservées.
 
 ---
 
