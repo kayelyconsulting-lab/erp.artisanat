@@ -82,7 +82,14 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
       let n = 0;
       for (const sec of SECTIONS) for (const m of sec.modules){
         if (m.readonly || garder.has(m.key)) continue;
-        for (const rec of await getAll(m.key)){ await deleteRecord(m.key, rec.id); n++; }
+        for (const rec of await getAll(m.key)){
+          // coupures réseau possibles (test à distance) : jusqu'à 3 essais par suppression
+          for (let essai = 0; ; essai++){
+            try { await deleteRecord(m.key, rec.id); break; }
+            catch(e){ if (essai >= 2 || e.status === 404) throw e; await new Promise(r => setTimeout(r, 1500)); }
+          }
+          n++;
+        }
       }
       for (const u of await getAll("utilisateurs")) if (u.login !== "admin"){ await deleteRecord("utilisateurs", u.id); n++; }
       const soc = (await getAll("societe"))[0];
