@@ -355,6 +355,28 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   assert.ok(st3 < 0.01, "journal équilibré");
   ok("facture modifiée par le Comptable : " + n3 + " -> " + n3b + " écritures, journal équilibré");
 
+  console.log("Connexion pendant une vérification d'ouverture lente");
+  const p3 = await ctx.newPage(); p3.on("pageerror", e => errors.push("lent: " + e.message));
+  await ctx.clearCookies();
+  await p3.route("**/*", async r => {
+    const u = r.request().url();
+    if (!u.startsWith(R)) return r.abort();
+    if (u.includes("/api/me")){                                                     // réponse lente
+      const reponse = await r.fetch();
+      await new Promise(res => setTimeout(res, 3000));
+      return r.fulfill({ response: reponse });
+    }
+    return r.continue();
+  });
+  await p3.goto(R + SOCIETE_PATH + "/");
+  await p3.waitForSelector("#loginCard", { state: "visible" });
+  await p3.fill("#loginUser", "admin"); await p3.fill("#loginPass", "Admin-Demo-2026"); await p3.click("#loginCard button");
+  await p3.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: 120000 });
+  await p3.waitForTimeout(4000);                                                    // la réponse tardive arrive
+  assert.equal(await p3.evaluate(() => currentUser && currentUser.role), "Administrateur", "toujours connecté");
+  assert.ok(await p3.evaluate(() => document.getElementById("app").classList.contains("show")), "application toujours affichée");
+  ok("connexion maintenue malgré la réponse tardive de la vérification d'ouverture");
+
   assert.deepEqual(errors, [], "aucune erreur JavaScript");
   ok("aucune erreur JavaScript");
   if (!REMOTE){

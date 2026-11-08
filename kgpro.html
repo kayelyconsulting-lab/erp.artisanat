@@ -1422,7 +1422,12 @@ const KGP_API_BASE = (() => {
   return p.endsWith("/") ? p : p + "/";
 })();
 
-async function kgpApi(method, url, body){
+/* Numéro de la session en cours dans ce navigateur : incrémenté à chaque connexion,
+   pour ne jamais déconnecter quelqu'un à cause de la réponse tardive d'une requête
+   envoyée avant sa connexion (connexion lente). */
+let kgpSessionGeneration = 0;
+async function kgpApi(method, url, body, options){
+  const generation = kgpSessionGeneration;
   url = KGP_API_BASE + url.replace(/^\//, "");
   const res = await fetch(url, {
     method, credentials:"same-origin",
@@ -1435,7 +1440,10 @@ async function kgpApi(method, url, body){
     const err = new Error((data && data.error)
       || `Le serveur de l'application ne répond pas à l'adresse ${url} (erreur ${res.status}). Vérifiez l'adresse de l'application dans cPanel.`);
     err.status = res.status; err.errors = data && data.errors;
-    if (res.status === 401 && currentUser){ currentUser = null; showLogin(); }
+    // Session réellement expirée : uniquement si la requête appartenait à la session en cours.
+    if (res.status === 401 && currentUser && generation === kgpSessionGeneration && !(options && options.ignore401)){
+      currentUser = null; showLogin();
+    }
     throw err;
   }
   return data;
@@ -4932,8 +4940,9 @@ async function kgpBoot(){
   const restored = await restoreSession();
   if (restored){
     enterApp();
-  } else {
-    showLogin();
+  } else if (!currentUser){
+    // (si l'utilisateur s'est connecté pendant cette vérification, on ne le renvoie pas à l'écran de connexion)
+    showLogin(true);
   }
 }
 /* =============== FIN LICENCE D'ACTIVATION =============== */
@@ -5019,7 +5028,7 @@ function kgpShowSocieteName(){
   });
 }
 
-function showLogin(){
+function showLogin(garderSaisie){
   kgpShowSocieteName();
   document.getElementById("app").classList.remove("show");
   document.getElementById("loginScreen").style.display = "block";
@@ -5027,8 +5036,9 @@ function showLogin(){
   document.getElementById("loginCard").style.display = "";
   document.getElementById("loginError").classList.remove("show");
   const u = document.getElementById("loginUser"); const p = document.getElementById("loginPass");
-  if (u) u.value = ""; if (p) p.value = "";
-  setTimeout(()=>{ if (u) u.focus(); }, 50);
+  // Au démarrage, on ne vide pas ce que l'utilisateur a pu déjà taper pendant le chargement.
+  if (!garderSaisie){ if (u) u.value = ""; if (p) p.value = ""; }
+  setTimeout(()=>{ if (u && !u.value) u.focus(); }, 50);
 }
 
 // Ancien mot de passe par défaut livré dans les versions précédentes : connu de tous,
@@ -5073,7 +5083,7 @@ async function submitSetup(){
       const r = setupMode === "create"
         ? await kgpApi("POST", "/api/setup", { login, password: pass })
         : await kgpApi("POST", "/api/password", { password: pass });
-      currentUser = r.user;
+      currentUser = r.user; kgpSessionGeneration++;
     }catch(e){ return fail(e.message); }
     await kgpAfterServerLogin();
     return;
@@ -5125,7 +5135,7 @@ async function attemptLogin(){
   if (KGP_SERVER){
     try{
       const r = await kgpApi("POST", "/api/login", { login: loginVal, password: passVal });
-      currentUser = r.user;
+      currentUser = r.user; kgpSessionGeneration++;
     }catch(e){
       errBox.textContent = e.message;
       errBox.classList.add("show");
@@ -5169,7 +5179,7 @@ async function kgpAfterServerLogin(){
 async function restoreSession(){
   if (KGP_SERVER){
     try{
-      const r = await kgpApi("GET", "/api/me");
+      const r = await kgpApi("GET", "/api/me", undefined, { ignore401: true });
       if (r.user.doitChangerMotDePasse) return false;
       currentUser = r.user;
       try{ await seedDefaults(); }catch(e){ console.error(e); }
