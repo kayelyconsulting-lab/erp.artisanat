@@ -455,14 +455,15 @@ function kgp_remove(array $user, string $store, int $id): bool {
 /* En-têtes de sécurité. Pages : politique de contenu limitée au site et aux deux CDN
    hébergées avec l'application (Excel, lecture OCR) : aucune source extérieure.
    Réponses JSON : rien ne peut s'y exécuter. */
-// Aucune source extérieure : les bibliothèques (Excel, lecture OCR) sont hébergées avec l'application.
-const KGP_CSP_PAGE = "default-src 'self'; "
-  . "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
-  . "worker-src 'self'; "
-  . "connect-src 'self' data: blob:; "
-  . "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; "
-  . "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
-function kgp_security_headers(bool $page = false): void {
+// Aucune source extérieure. Le script de la page est autorisé par un « nonce » unique à chaque
+// requête : la CSP n'a pas besoin de 'unsafe-inline', donc un code injecté ne s'exécute pas.
+function kgp_csp_page(?string $nonce): string {
+  $scriptSrc = $nonce !== null ? "'self' 'nonce-$nonce' 'wasm-unsafe-eval'" : "'self' 'unsafe-inline' 'wasm-unsafe-eval'";
+  return "default-src 'self'; script-src $scriptSrc; worker-src 'self'; connect-src 'self' data: blob:; "
+    . "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; "
+    . "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+}
+function kgp_security_headers(bool $page = false, ?string $nonce = null): void {
   header('Cache-Control: no-store');
   header('X-Content-Type-Options: nosniff');
   header('X-Frame-Options: DENY');
@@ -470,7 +471,7 @@ function kgp_security_headers(bool $page = false): void {
   header('Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
   header('Cross-Origin-Opener-Policy: same-origin');
   header('Cross-Origin-Resource-Policy: same-origin');
-  header('Content-Security-Policy: ' . ($page ? KGP_CSP_PAGE . (kgp_is_https() ? '; upgrade-insecure-requests' : '') : "default-src 'none'; frame-ancestors 'none'"));
+  header('Content-Security-Policy: ' . ($page ? kgp_csp_page($nonce) . (kgp_is_https() ? '; upgrade-insecure-requests' : '') : "default-src 'none'; frame-ancestors 'none'"));
   if (kgp_is_https()) header('Strict-Transport-Security: max-age=31536000');
   header_remove('X-Powered-By');
 }
@@ -673,7 +674,10 @@ function kgp_serve_app(): void {
   $t = kgp_tenant();
   $html = file_get_contents(__DIR__ . '/kgpro.html');
   if ($html === false){ http_response_code(500); echo 'kgpro.html introuvable dans lib/'; return; }
-  kgp_security_headers(true);
+  $nonce = rtrim(strtr(base64_encode(random_bytes(16)), '+/', '-_'), '=');
+  kgp_security_headers(true, $nonce);
+  // Le script de la page porte le nonce autorisé par la CSP (le script xlsx externe n'en a pas besoin).
+  $html = str_replace('<script>', '<script nonce="' . $nonce . '">', $html);
   header('Content-Type: text/html; charset=utf-8');
   $societe = json_encode(['slug' => $t['slug'], 'nom' => $t['nom']], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
   // Clé PUBLIQUE de vérification des licences (créée dans la console) : rien à configurer à la main.
@@ -685,6 +689,6 @@ function kgp_serve_app(): void {
   // Bibliothèques hébergées à la racine du site (/assets/), quelle que soit l'adresse de la société.
   $assets = ($GLOBALS['KGP_BASE'] ?? '') . '/assets/';
   $html = str_replace('src="assets/', 'src="' . $assets, $html);
-  $inject = "<head>\n<script>window.KGP_SERVER = true; window.KGP_SOCIETE = $societe; window.KGP_ASSETS = " . json_encode($assets, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG) . ";</script>";
+  $inject = "<head>\n<script nonce=\"$nonce\">window.KGP_SERVER = true; window.KGP_SOCIETE = $societe; window.KGP_ASSETS = " . json_encode($assets, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG) . ";</script>";
   echo $pos === false ? $html : substr_replace($html, $inject, $pos, 6);
 }

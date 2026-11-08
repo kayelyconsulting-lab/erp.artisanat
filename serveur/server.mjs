@@ -43,9 +43,10 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
   // Limite globale par adresse IP, tous identifiants confondus (essais d'un mot de passe sur
   // de nombreux comptes) : 30 échecs en 15 minutes.
   const limiterIp = createLoginLimiter({ max: 30 });
-  const appHtml = () => fs.readFileSync(appFile, "utf8")
+  const appHtml = (nonce = null) => fs.readFileSync(appFile, "utf8")
     .replace(/src="assets\//g, 'src="/assets/')
-    .replace("<head>", '<head>\n<script>window.KGP_SERVER = true; window.KGP_ASSETS = "/assets/";</script>');
+    .replace("<script>", nonce ? `<script nonce="${nonce}">` : "<script>")
+    .replace("<head>", `<head>\n<script${nonce ? ` nonce="${nonce}"` : ""}>window.KGP_SERVER = true; window.KGP_ASSETS = "/assets/";</script>`);
   // Bibliothèques du navigateur hébergées avec l'application (assets/vendor)
   const ASSETS = path.join(ROOT, "assets");
   const TYPES = { ".js": "application/javascript; charset=utf-8", ".traineddata": "application/octet-stream" };
@@ -290,14 +291,15 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
       req.on("error", reject);
     });
   }
-  // En-têtes de sécurité (mêmes règles que la version PHP).
-  const CSP_PAGE = "default-src 'self'; "
-    + "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
+  // En-têtes de sécurité (mêmes règles que la version PHP). Le script de la page est autorisé par
+  // un « nonce » unique à chaque requête : la CSP n'a pas besoin de 'unsafe-inline'.
+  const cspPage = nonce => "default-src 'self'; "
+    + "script-src 'self' " + (nonce ? "'nonce-" + nonce + "'" : "'unsafe-inline'") + " 'wasm-unsafe-eval'; "
     + "worker-src 'self'; "
     + "connect-src 'self' data: blob:; "
     + "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; "
     + "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
-  function securityHeaders(req, page){
+  function securityHeaders(req, page, nonce = null){
     const https = !!req && isHttps(req);
     return {
       "Cache-Control": "no-store",
@@ -307,7 +309,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
       "Permissions-Policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Resource-Policy": "same-origin",
-      "Content-Security-Policy": page ? CSP_PAGE + (https ? "; upgrade-insecure-requests" : "") : "default-src 'none'; frame-ancestors 'none'",
+      "Content-Security-Policy": page ? cspPage(nonce) + (https ? "; upgrade-insecure-requests" : "") : "default-src 'none'; frame-ancestors 'none'",
       ...(https ? { "Strict-Transport-Security": "max-age=31536000" } : {}),
     };
   }
@@ -484,7 +486,10 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
     try{
       if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
       if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/assets/") && serveAsset(req, res, url.pathname)) return;
-      if (req.method === "GET" && (url.pathname.endsWith("/") || url.pathname.endsWith("/kgpro.html"))) return send(res, 200, appHtml());
+      if (req.method === "GET" && (url.pathname.endsWith("/") || url.pathname.endsWith("/kgpro.html"))){
+        const nonce = crypto.randomBytes(16).toString("base64url");
+        return send(res, 200, appHtml(nonce), { "Content-Security-Policy": cspPage(nonce) + (isHttps(req) ? "; upgrade-insecure-requests" : "") });
+      }
       return send(res, 404, { error: "Introuvable" });
     }catch(e){
       if (e instanceof ValidationError) return send(res, 422, { error: e.message, errors: e.errors });

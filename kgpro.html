@@ -315,9 +315,9 @@ tbody tr:hover{background:#F8FAFD;}
     <div class="act-field">
       <label>Clé de licence</label>
       <input id="actKey" type="text" placeholder="KGP2-AAMMJJ-…" autocomplete="off"
-        onkeydown="if(event.key==='Enter')attemptActivation()">
+        data-act="attemptActivation" data-on="enter">
     </div>
-    <button class="act-btn" onclick="attemptActivation()">Activer l'application</button>
+    <button class="act-btn" data-act="attemptActivation">Activer l'application</button>
     <div class="act-hint">Pas encore de licence ? Contactez Kayely Group pour obtenir votre clé d'activation.<br>Une période d'essai de 15 jours est offerte à la première installation.</div>
   </div>
 </div>
@@ -355,9 +355,9 @@ tbody tr:hover{background:#F8FAFD;}
       <div class="login-field">
         <span class="ic">🔒</span>
         <input id="setupPass2" type="password" placeholder="Confirmez le code secret" autocomplete="new-password"
-          onkeydown="if(event.key==='Enter')submitSetup()">
+          data-act="submitSetup" data-on="enter">
       </div>
-      <button class="btn gold" onclick="submitSetup()">Enregistrer</button>
+      <button class="btn gold" data-act="submitSetup">Enregistrer</button>
     </div>
     <div class="login-card" id="loginCard">
       <h2>Connectez-vous à votre compte</h2>
@@ -365,21 +365,21 @@ tbody tr:hover{background:#F8FAFD;}
       <div class="login-field">
         <span class="ic">👤</span>
         <input id="loginUser" type="text" placeholder="Identifiant" autocomplete="username"
-          onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()">
+          data-act="focusLoginPass" data-on="enter">
       </div>
       <div class="login-field">
         <span class="ic">🔒</span>
         <input id="loginPass" type="password" placeholder="Code secret" autocomplete="current-password"
-          onkeydown="if(event.key==='Enter')attemptLogin()">
+          data-act="attemptLogin" data-on="enter">
       </div>
-      <button class="btn gold" onclick="attemptLogin()">Se connecter</button>
+      <button class="btn gold" data-act="attemptLogin">Se connecter</button>
       <div class="login-hint">Accès réservé aux collaborateurs autorisés de KAYELY GESTION PRO.</div>
     </div>
   </div>
 </div>
 
 <div id="app">
-  <input type="file" id="excelImportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleExcelImport(event)">
+  <input type="file" id="excelImportInput" accept=".xlsx,.xls,.csv" style="display:none" data-act="handleExcelImport" data-on="change" data-a="${esc(JSON.stringify(['@e']))}">
   <aside id="sidebar">
     <div class="brand">
       <img class="brand-logo" src="data:image/png;base64,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" alt="KAYELY GESTION PRO">
@@ -397,25 +397,25 @@ tbody tr:hover{background:#F8FAFD;}
           <div class="role" id="sfRole">—</div>
         </div>
       </div>
-      <button class="sf-logout" onclick="logout()">🚪 Déconnexion</button>
+      <button class="sf-logout" data-act="logout">🚪 Déconnexion</button>
     </div>
   </aside>
 
   <div id="main">
     <div id="topbar">
       <div style="display:flex; align-items:center; gap:12px;">
-        <button id="burger" onclick="toggleSidebar()">☰</button>
+        <button id="burger" data-act="toggleSidebar">☰</button>
         <div id="crumb"></div>
       </div>
       <div class="actions" style="display:flex; align-items:center; gap:14px;">
-        <button onclick="renderRoute('accueil')">🏠 Accueil</button>
+        <button data-act="renderRoute" data-a="${esc(JSON.stringify(['accueil']))}">🏠 Accueil</button>
         <div class="userbox">
           <div class="who">
             <div class="name" id="ubName">—</div>
             <div class="role" id="ubRole">—</div>
           </div>
           <div class="avatar" id="ubAvatar">?</div>
-          <button class="logout-btn" onclick="logout()">Déconnexion</button>
+          <button class="logout-btn" data-act="logout">Déconnexion</button>
         </div>
       </div>
     </div>
@@ -1612,7 +1612,7 @@ function buildNav(){
 
   const accueilBtn = document.createElement("div");
   accueilBtn.className = "nav-section";
-  accueilBtn.innerHTML = `<div class="nav-head" onclick="renderRoute('accueil')"><span class="num">01</span><span>🏠 Accueil</span></div>`;
+  accueilBtn.innerHTML = `<div class="nav-head" data-act="renderRoute" data-a="${esc(JSON.stringify(['accueil']))}"><span class="num">01</span><span>🏠 Accueil</span></div>`;
   nav.appendChild(accueilBtn);
 
   SECTIONS.forEach(sec => {
@@ -1775,7 +1775,7 @@ async function renderAccueil(){
       ${notifications.map(n => `
         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; background:#FFF6EC; border:1px solid var(--gold-light); border-radius:10px; padding:12px 16px;">
           <div style="display:flex; align-items:center; gap:10px;"><span style="font-size:20px;">${n.icon}</span><span>${n.text}</span></div>
-          <button class="btn small" onclick="renderRoute('${n.action}')">${n.cta}</button>
+          <button class="btn small" data-act="renderRoute" data-a="${esc(JSON.stringify([n.action]))}">${n.cta}</button>
         </div>`).join("")}
     </div>`;
 
@@ -1822,7 +1822,7 @@ async function renderAccueil(){
       <div class="grid cols-3">
         ${SECTIONS.map(sec => `
           <div style="border:1px solid var(--line); border-radius:8px; padding:14px; cursor:pointer;"
-               onclick="renderRoute('${sec.modules[0].key}')">
+               data-act="renderRoute" data-a="${esc(JSON.stringify([sec.modules[0].key]))}">
             <div style="font-size:20px;">${sec.icon}</div>
             <div style="font-weight:700; color:var(--navy); margin-top:4px;">${sec.num} · ${sec.label}</div>
             <div style="font-size:11.5px; color:var(--ink-soft); margin-top:2px;">${sec.modules.map(m=>m.label).join(", ")}</div>
@@ -1902,6 +1902,54 @@ function escInPlace(obj){
   }
   return obj;
 }
+
+/* ---------------------------------------------------------
+   Délégation des événements : aucun gestionnaire « en ligne » (onclick=…) dans le HTML, pour
+   une politique de sécurité (CSP) sans 'unsafe-inline'. Chaque élément porte :
+     data-act = nom de la fonction à appeler ;
+     data-a   = ses arguments (JSON) ; le jeton "@v" = valeur du champ, "@e" = l'événement ;
+     data-on  = type d'événement (click par défaut ; sinon change, input ou enter).
+   Les noms dans data-act viennent toujours du code (jamais d'une saisie) : window[nom] est sûr.
+   --------------------------------------------------------- */
+function kgpArgs(el, ev){
+  let a = [];
+  if (el.dataset.a){ try{ a = JSON.parse(el.dataset.a); }catch(e){ a = []; } }
+  return a.map(x => x === "@v" ? el.value : x === "@e" ? ev : x);
+}
+function kgpDispatch(ev){
+  const el = ev.type === "click" ? (ev.target.closest && ev.target.closest("[data-act]"))
+    : (ev.target.matches && ev.target.matches("[data-act]") ? ev.target : null);
+  if (!el) return;
+  const on = el.dataset.on || "click";
+  if (on === "enter"){ if (ev.key !== "Enter") return; }
+  else if (on !== ev.type) return;
+  const fn = window[el.dataset.act];
+  if (typeof fn !== "function") return;
+  if (on === "enter") ev.preventDefault();
+  fn(...kgpArgs(el, ev));
+}
+for (const t of ["click", "change", "input", "keydown"]) document.addEventListener(t, kgpDispatch, false);
+
+/* Fenêtres d'impression : le bouton « Imprimer » et l'impression automatique sont câblés en
+   JavaScript (le document ouvert hérite de la CSP, qui interdit les gestionnaires en ligne). */
+function cablerImpression(w){
+  if (!w) return;
+  const lancer = () => { try{ w.focus(); w.print(); }catch(e){} };
+  try{ const btn = w.document.querySelector("[data-print]"); if (btn) btn.addEventListener("click", lancer); }catch(e){}
+  try{
+    if (w.document && w.document.readyState === "complete") setTimeout(lancer, 100);
+    else w.addEventListener("load", () => setTimeout(lancer, 100));
+  }catch(e){}
+}
+
+/* Petits gestionnaires remplaçant d'anciennes commandes « en ligne » multi-instructions. */
+function focusLoginPass(){ const el = document.getElementById("loginPass"); if (el) el.focus(); }
+function setRapproReleve(v){ rapproReleveId = Number(v); renderRapprochementAuto(); }
+function setRapproBanque(v){ rapproBanque = v; rapproReleveId = null; renderRapprochementAuto(); }
+function addPieceLigne(){ pieceLignes.push({compte:'',libelle:'',debit:0,credit:0}); renderPieceEditor(); }
+function removePieceLigne(i){ pieceLignes.splice(i,1); if(!pieceLignes.length) pieceLignes.push({compte:'',libelle:'',debit:0,credit:0}); renderPieceEditor(); }
+function setLiasseOnglet(k){ liasseOnglet = k; renderLiasse(); }
+function rechargerPeriode(fn){ periodeCompta = null; if (typeof window[fn] === "function") window[fn](); }
 
 /* ---------------------------------------------------------
    3bis) GRAPHIQUES SVG NATIFS (sans dependance externe)
@@ -2092,11 +2140,11 @@ async function renderModuleList(mod){
     <h1 class="page-title">${mod.label}</h1>
     <div class="page-sub">${rows.length} enregistrement(s)${mod.special==="treso" ? " — compte OHADA "+mod.compte : ""}</div>
     <div class="toolbar">
-      <input class="search-box" placeholder="Rechercher..." value="${esc(searchTerm)}" oninput="onSearch('${mod.key}', this.value)">
-      <button class="btn small ghost" onclick="exportModuleExcel('${mod.key}')">⬇️ Exporter Excel</button>
-      <button class="btn small ghost" onclick="triggerExcelImport('${mod.key}')">⬆️ Importer Excel</button>
-      ${mod.key==="journal" ? `<button class="btn small" onclick="openPieceForm()">✍️ Saisir une pièce (plusieurs lignes)</button>` : ""}
-      <button class="btn gold" onclick="openForm('${mod.key}')">+ Nouveau</button>
+      <input class="search-box" placeholder="Rechercher..." value="${esc(searchTerm)}" data-act="onSearch" data-on="input" data-a="${esc(JSON.stringify([mod.key, '@v']))}">
+      <button class="btn small ghost" data-act="exportModuleExcel" data-a="${esc(JSON.stringify([mod.key]))}">⬇️ Exporter Excel</button>
+      <button class="btn small ghost" data-act="triggerExcelImport" data-a="${esc(JSON.stringify([mod.key]))}">⬆️ Importer Excel</button>
+      ${mod.key==="journal" ? `<button class="btn small" data-act="openPieceForm">✍️ Saisir une pièce (plusieurs lignes)</button>` : ""}
+      <button class="btn gold" data-act="openForm" data-a="${esc(JSON.stringify([mod.key]))}">+ Nouveau</button>
     </div>
     <div class="table-wrap">
       ${rows.length===0 ? `<div class="empty"><div class="big">📄</div>Aucun enregistrement. Cliquez sur « + Nouveau » pour commencer.</div>` : `
@@ -2106,20 +2154,20 @@ async function renderModuleList(mod){
           ${rows.map(r => `<tr>
             ${cols.map(c => `<td>${renderCell(mod, c, r[c])}</td>`).join("")}
             <td>
-              <button class="btn small ghost" onclick="openForm('${mod.key}', ${r.id})">Modifier</button>
+              <button class="btn small ghost" data-act="openForm" data-a="${esc(JSON.stringify([mod.key, r.id]))}">Modifier</button>
               ${mod.canGenerateFacture ? (r.factureNumero
                   ? `<span class="badge ok">Facturé ${esc(r.factureNumero)}</span>`
-                  : (r.statut==="Accepté" ? `<button class="btn small gold" onclick="genererFactureDepuis('${mod.key}', ${r.id})">Facturer</button>` : "")) : ""}
-              ${mod.special==="treso" ? `<button class="btn small ghost" onclick="printTicket('${mod.key}', ${r.id})">Imprimer</button>` : ""}
-              ${mod.special==="paie" ? `<button class="btn small ghost" onclick="printBulletin(${r.id})">Bulletin</button>` : ""}
-              ${mod.special==="immobilisations" ? `<button class="btn small ghost" onclick="printPlanAmortissement(${r.id})">Tableau d'amort.</button>` : ""}
-              ${(mod.special==="factures"||mod.special==="facturesAchat") ? `<button class="btn small ghost" onclick="printFacture('${mod.key}', ${r.id})">Voir facture</button>` : ""}
-              ${(mod.special==="factures"||mod.special==="facturesAchat") && r.solde > 0.005 ? `<button class="btn small gold" onclick="ouvrirReglement('${mod.key}', ${r.id})">Règlement</button>` : ""}
-              ${mod.special==="clients" ? `<button class="btn small ghost" onclick="printReleveClient(${r.id})">Relevé</button>` : ""}
-              ${r.scanImage ? `<button class="btn small ghost" onclick="viewScanImage('${mod.key}', ${r.id})">📎 Voir le scan</button>` : ""}
+                  : (r.statut==="Accepté" ? `<button class="btn small gold" data-act="genererFactureDepuis" data-a="${esc(JSON.stringify([mod.key, r.id]))}">Facturer</button>` : "")) : ""}
+              ${mod.special==="treso" ? `<button class="btn small ghost" data-act="printTicket" data-a="${esc(JSON.stringify([mod.key, r.id]))}">Imprimer</button>` : ""}
+              ${mod.special==="paie" ? `<button class="btn small ghost" data-act="printBulletin" data-a="${esc(JSON.stringify([r.id]))}">Bulletin</button>` : ""}
+              ${mod.special==="immobilisations" ? `<button class="btn small ghost" data-act="printPlanAmortissement" data-a="${esc(JSON.stringify([r.id]))}">Tableau d'amort.</button>` : ""}
+              ${(mod.special==="factures"||mod.special==="facturesAchat") ? `<button class="btn small ghost" data-act="printFacture" data-a="${esc(JSON.stringify([mod.key, r.id]))}">Voir facture</button>` : ""}
+              ${(mod.special==="factures"||mod.special==="facturesAchat") && r.solde > 0.005 ? `<button class="btn small gold" data-act="ouvrirReglement" data-a="${esc(JSON.stringify([mod.key, r.id]))}">Règlement</button>` : ""}
+              ${mod.special==="clients" ? `<button class="btn small ghost" data-act="printReleveClient" data-a="${esc(JSON.stringify([r.id]))}">Relevé</button>` : ""}
+              ${r.scanImage ? `<button class="btn small ghost" data-act="viewScanImage" data-a="${esc(JSON.stringify([mod.key, r.id]))}">📎 Voir le scan</button>` : ""}
               ${mod.special==="immobilisations" && !((r.anneesPostees||[]).includes(new Date().getFullYear())) && (r.planAmortissement||[]).some(p=>p.annee===new Date().getFullYear())
-                ? `<button class="btn small gold" onclick="postAmortissementAnnee('${mod.key}', ${r.id}, ${new Date().getFullYear()})">Comptabiliser dotation ${new Date().getFullYear()}</button>` : ""}
-              ${isAdmin() ? `<button class="btn small danger" onclick="removeRecord('${mod.key}', ${r.id})">Suppr.</button>` : ""}
+                ? `<button class="btn small gold" data-act="postAmortissementAnnee" data-a="${esc(JSON.stringify([mod.key, r.id, new Date().getFullYear()]))}">Comptabiliser dotation ${new Date().getFullYear()}</button>` : ""}
+              ${isAdmin() ? `<button class="btn small danger" data-act="removeRecord" data-a="${esc(JSON.stringify([mod.key, r.id]))}">Suppr.</button>` : ""}
             </td>
           </tr>`).join("")}
         </tbody>
@@ -2309,7 +2357,7 @@ async function openForm(storeKey, id){
   for (const f of (mod.fields||[])){
     const val = record[f.k] ?? "";
     if (f.t === "select"){
-      const extraOnchange = (mod.special==="immobilisations" && f.k==="categorie") ? ` onchange="autofillImmoComptes(this.value)"` : "";
+      const extraOnchange = (mod.special==="immobilisations" && f.k==="categorie") ? ` data-act="autofillImmoComptes" data-on="change" data-a="${esc(JSON.stringify(['@v']))}"` : "";
       fieldsHtmlParts.push(`<div class="field"><label>${f.l}${f.req?" *":""}</label>
         <select id="f_${f.k}"${extraOnchange}>
           <option value=""></option>
@@ -2329,7 +2377,7 @@ async function openForm(storeKey, id){
       const opts = options.map(o => o[f.labelField]).filter(Boolean);
       // valeur enregistrée qui n'existe plus dans la liste (fiche renommée) : on la garde sélectionnable
       if (val && !opts.includes(val)) opts.unshift(val);
-      const changeAttr = f.autofill ? ` onchange="applyAutofill('${storeKey}','${f.k}','${f.autofill}',this.value)"` : "";
+      const changeAttr = f.autofill ? ` data-act="applyAutofill" data-on="change" data-a="${esc(JSON.stringify([storeKey, f.k, f.autofill, '@v']))}"` : "";
       fieldsHtmlParts.push(`<div class="field"><label>${f.l}${f.req?" *":""}</label>
         <select id="f_${f.k}"${changeAttr}>
           <option value=""></option>
@@ -2342,14 +2390,14 @@ async function openForm(storeKey, id){
       const captureAttr = f.ocr ? ` capture="environment"` : "";
       const removeLabel = f.ocr ? "Supprimer le scan" : "Supprimer le logo";
       const helpText = f.help || "PNG ou JPG recommandé, fond transparent de préférence. Utilisé sur les factures, tickets de caisse et bulletins de paie.";
-      const ocrBtn = f.ocr ? `<button type="button" id="ocrbtn_${f.k}" class="btn small gold" onclick="runOcrScan('${storeKey}','${f.k}')">🔎 Lire la facture (OCR)</button>` : "";
+      const ocrBtn = f.ocr ? `<button type="button" id="ocrbtn_${f.k}" class="btn small gold" data-act="runOcrScan" data-a="${esc(JSON.stringify([storeKey, f.k]))}">🔎 Lire la facture (OCR)</button>` : "";
       const ocrSummary = f.ocr ? `<div id="ocrSummary_${f.k}" style="display:none; margin-top:8px; padding:8px 10px; background:#F4F6FA; border:1px solid #E3E7F1; border-radius:6px; font-size:11px; color:#182338; line-height:1.6;"></div>` : "";
       fieldsHtmlParts.push(`<div class="field"><label>${f.l}${f.req?" *":""}</label>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <img id="img_${f.k}" src="${esc(val||"")}" style="max-width:130px; max-height:70px; object-fit:contain; border:1px solid #E3E7F1; border-radius:6px; background:#fff; ${hasImg?"":"display:none;"}">
-          <input type="file" id="f_${f.k}" accept="image/*"${captureAttr} onchange="handleImageFieldChange(event,'${f.k}')">
+          <input type="file" id="f_${f.k}" accept="image/*"${captureAttr} data-act="handleImageFieldChange" data-on="change" data-a="${esc(JSON.stringify(['@e', f.k]))}">
           ${ocrBtn}
-          <button type="button" id="imgremove_${f.k}" class="btn small ghost" style="${hasImg?"":"display:none;"}" onclick="removeImageField('${f.k}')">${removeLabel}</button>
+          <button type="button" id="imgremove_${f.k}" class="btn small ghost" style="${hasImg?"":"display:none;"}" data-act="removeImageField" data-a="${esc(JSON.stringify([f.k]))}">${removeLabel}</button>
         </div>
         <div style="font-size:10.5px; color:#8A93A6; margin-top:4px;">${helpText}</div>
         ${ocrSummary}
@@ -2389,8 +2437,8 @@ async function openForm(storeKey, id){
         <div id="lignesEditor"></div>
       </div>` : ""}
     <div class="modal-actions">
-      <button class="btn ghost" onclick="closeModal()">Annuler</button>
-      <button class="btn gold" onclick="saveForm('${storeKey}', ${id||"null"})">Enregistrer</button>
+      <button class="btn ghost" data-act="closeModal">Annuler</button>
+      <button class="btn gold" data-act="saveForm" data-a="${esc(JSON.stringify([storeKey, id||null]))}">Enregistrer</button>
     </div>
   `;
   if (mod.hasLignes) renderLignesEditor(storeKey);
@@ -2673,22 +2721,22 @@ function renderLignesEditor(storeKey){
       <tbody>
         ${currentLignes.map((l,i)=>`<tr>
           <td style="padding:3px;">
-            <select onchange="choisirLigneDesignation(${i},this.value,'${storeKey}')" style="width:100%;">
+            <select data-act="choisirLigneDesignation" data-on="change" data-a="${esc(JSON.stringify([i, '@v', storeKey]))}" style="width:100%;">
               <option value="">— Choisir un article/service —</option>
               ${currentLigneCatalogue.map(c=>`<option value="${esc(c.designation)}" ${!ligneEstLibre(l) && c.designation===l.designation?"selected":""}>${esc(c.designation)}</option>`).join("")}
               <option value="__autre__" ${ligneEstLibre(l) ? "selected" : ""}>Autre (saisie libre)…</option>
             </select>
             ${ligneEstLibre(l) ? `
               <input type="text" value="${esc(l.designation||"")}" placeholder="Désignation libre"
-                oninput="updateLigneField(${i},'designation',this.value)" style="width:100%; margin-top:4px;">` : ""}
+                data-act="updateLigneField" data-on="input" data-a="${esc(JSON.stringify([i, 'designation', '@v']))}" style="width:100%; margin-top:4px;">` : ""}
           </td>
           <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${esc(l.quantite ?? 1)}"
-              oninput="updateLigneField(${i},'quantite',this.value)" style="width:100%; text-align:right;"></td>
+              data-act="updateLigneField" data-on="input" data-a="${esc(JSON.stringify([i, 'quantite', '@v']))}" style="width:100%; text-align:right;"></td>
           <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${esc(l.prixUnitaire ?? 0)}"
-              oninput="updateLigneField(${i},'prixUnitaire',this.value)" style="width:100%; text-align:right;"></td>
+              data-act="updateLigneField" data-on="input" data-a="${esc(JSON.stringify([i, 'prixUnitaire', '@v']))}" style="width:100%; text-align:right;"></td>
           <td style="padding:3px; text-align:right; font-weight:700;" id="ligneMontant_${i}">${fmt((Number(l.quantite)||0)*(Number(l.prixUnitaire)||0))}</td>
           <td style="padding:3px; text-align:center;">
-            <button type="button" onclick="removeLigneRow(${i},'${storeKey}')" style="background:none; border:none; color:#B3261E; cursor:pointer; font-size:14px;" title="Supprimer la ligne">✕</button>
+            <button type="button" data-act="removeLigneRow" data-a="${esc(JSON.stringify([i, storeKey]))}" style="background:none; border:none; color:#B3261E; cursor:pointer; font-size:14px;" title="Supprimer la ligne">✕</button>
           </td>
         </tr>`).join("")}
       </tbody>
@@ -2697,7 +2745,7 @@ function renderLignesEditor(storeKey){
           <td style="text-align:right; padding:6px 4px; font-weight:800; color:#1F3864;" id="lignesTotal">${fmt(total)}</td><td></td></tr>
       </tfoot>
     </table>
-    <button type="button" class="btn small ghost" style="margin-top:6px;" onclick="addLigneRow('${storeKey}')">+ Ajouter une ligne</button>
+    <button type="button" class="btn small ghost" style="margin-top:6px;" data-act="addLigneRow" data-a="${esc(JSON.stringify([storeKey]))}">+ Ajouter une ligne</button>
   `;
   const montantEl = document.getElementById("f_montantHT");
   if (montantEl) montantEl.value = total;
@@ -3255,7 +3303,7 @@ async function printPlanAmortissement(id){
     .badge-ok{color:#1E7A46; font-weight:700;}
     @media print{ .noprint{display:none;} }
   </style></head>
-  <body onload="window.print()">
+  <body>
     <h2>${societe.raison || "KAYELY GESTION PRO"}</h2>
     <div class="sub">Tableau d'amortissement — ${rec.numero||""}</div>
     <div class="info">
@@ -3277,10 +3325,10 @@ async function printPlanAmortissement(id){
         </tr>`).join("")}
       </tbody>
     </table>
-    <button class="noprint" style="margin-top:16px;" onclick="window.print()">Imprimer</button>
+    <button class="noprint" style="margin-top:16px;" data-print="1">Imprimer</button>
   </body></html>`;
   const w = window.open("", "_blank");
-  w.document.write(html);
+  w.document.write(html); w.document.close(); cablerImpression(w);
   w.document.close();
 }
 
@@ -3332,7 +3380,7 @@ async function printFacture(storeKey, id){
     .totaux .grand{font-weight:800; font-size:14px; color:#1F3864; border-top:2px solid #1F3864;}
     @media print{ .noprint{display:none;} }
   </style></head>
-  <body onload="window.print()">
+  <body>
     <div class="top">
       <div class="identite">
         ${societe.logo ? `<img src="${societe.logo}" alt="logo">` : ""}
@@ -3370,10 +3418,10 @@ async function printFacture(storeKey, id){
       ${detailReglements.map(r => `<tr><td>${r.numero||""}</td><td>${fmtDateFr(r.date)}</td><td>${r.moyen||""}</td><td>${r.reference||""}</td><td>${fmt(r.montant)}</td></tr>`).join("")}
     </tbody></table>` : ""}
     <div style="margin-top:10px; font-size:12px;">Arrêtée la présente facture à la somme de : <b>${esc(montantEnLettres(ttc))}</b>${timbre>0?" (timbre inclus)":""}.</div>
-    <button class="noprint" style="margin-top:14px;" onclick="window.print()">Imprimer</button>
+    <button class="noprint" style="margin-top:14px;" data-print="1">Imprimer</button>
   </body></html>`;
   const w = window.open("", "_blank");
-  w.document.write(html);
+  w.document.write(html); w.document.close(); cablerImpression(w);
   w.document.close();
 }
 
@@ -3478,8 +3526,8 @@ async function renderSingleForm(mod){
       return `<div class="field"><label>${f.l}</label>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <img id="img_${f.k}" src="${esc(val)}" style="max-width:130px; max-height:70px; object-fit:contain; border:1px solid #E3E7F1; border-radius:6px; background:#fff; ${hasImg?"":"display:none;"}">
-          <input type="file" id="sf_${f.k}" accept="image/*" onchange="handleImageFieldChange(event,'${f.k}')">
-          <button type="button" id="imgremove_${f.k}" class="btn small ghost" style="${hasImg?"":"display:none;"}" onclick="removeImageField('${f.k}')">Supprimer le logo</button>
+          <input type="file" id="sf_${f.k}" accept="image/*" data-act="handleImageFieldChange" data-on="change" data-a="${esc(JSON.stringify(['@e', f.k]))}">
+          <button type="button" id="imgremove_${f.k}" class="btn small ghost" style="${hasImg?"":"display:none;"}" data-act="removeImageField" data-a="${esc(JSON.stringify([f.k]))}">Supprimer le logo</button>
         </div>
         <div style="font-size:10.5px; color:#8A93A6; margin-top:4px;">PNG ou JPG recommandé, fond transparent de préférence. Utilisé sur les factures, tickets de caisse et bulletins de paie.</div>
       </div>`;
@@ -3493,7 +3541,7 @@ async function renderSingleForm(mod){
     <h1 class="page-title">${mod.label}</h1>
     <div class="page-sub">Informations générales de l'entreprise</div>
     <div class="card"><div class="grid cols-2">${fieldsHtml}</div>
-      <div class="modal-actions"><button class="btn gold" onclick="saveSingle('${mod.key}')">Enregistrer</button></div>
+      <div class="modal-actions"><button class="btn gold" data-act="saveSingle" data-a="${esc(JSON.stringify([mod.key]))}">Enregistrer</button></div>
     </div>
   `;
 }
@@ -3631,7 +3679,7 @@ async function renderLivrePaie(periodeFiltre){
       <td class="num">${fmt(p.cmuSalarie)}</td>
       <td class="num">${fmt(autresRetenues)}</td>
       <td class="num"><b>${fmt(p.netAPayer)}</b></td>
-      <td><button class="btn small ghost" onclick="printBulletin(${r.id})">Bulletin</button></td>
+      <td><button class="btn small ghost" data-act="printBulletin" data-a="${esc(JSON.stringify([r.id]))}">Bulletin</button></td>
     </tr>`;
   }).join("");
 
@@ -3654,8 +3702,8 @@ async function renderLivrePaie(periodeFiltre){
     <div class="page-sub">Registre récapitulatif de tous les bulletins de paie, calculé en direct — obligatoire au regard du Code du Travail (art. 32.5)</div>
     <div class="toolbar" style="display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
       <label style="font-size:12px; color:#5B6479;">Période :</label>
-      <select onchange="renderLivrePaie(this.value)" style="width:auto;">${periodeOptions}</select>
-      <button class="btn gold" onclick="printLivrePaie(${esc(JSON.stringify(periode))})">🖨️ Imprimer le livre de paie</button>
+      <select data-act="renderLivrePaie" data-on="change" data-a="${esc(JSON.stringify(['@v']))}" style="width:auto;">${periodeOptions}</select>
+      <button class="btn gold" data-act="printLivrePaie" data-a="${esc(JSON.stringify([periode]))}">🖨️ Imprimer le livre de paie</button>
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
@@ -3709,7 +3757,7 @@ async function printLivrePaie(periode){
     .noprint{margin-top:14px;}
     @media print{ .noprint{display:none;} }
   </style></head>
-  <body onload="window.print()">
+  <body>
     <h1>${societe.raison || "KAYELY GESTION PRO"} — LIVRE DE PAIE</h1>
     <div class="sub">${periode ? "Période : "+periode : "Toutes périodes confondues"} — édité le ${new Date().toLocaleDateString("fr-FR")}</div>
     <table>
@@ -3727,10 +3775,10 @@ async function printLivrePaie(periode){
       </tbody>
     </table>
     <div class="mention">Registre établi conformément au Code du Travail ivoirien (article 32.5) — à conserver sans limitation de durée.</div>
-    <button class="noprint" onclick="window.print()">Imprimer</button>
+    <button class="noprint" data-print="1">Imprimer</button>
   </body></html>`;
   const w = window.open("", "_blank");
-  w.document.write(html);
+  w.document.write(html); w.document.close(); cablerImpression(w);
   w.document.close();
 }
 
@@ -3740,7 +3788,7 @@ async function renderCnps(){
   const bareme = await getBareme();
   const lines = rows.map(r => {
     const p = computePaie(r, params, bareme);
-    return `<tr><td>${r.employe||""}</td><td>${r.periode||""}</td><td>${fmt(p.brutSocial)}</td><td>${fmt(p.cnpsSalariale)}</td><td>${fmt(p.cnpsPatronale)}</td><td>${fmt(p.cnpsSalariale+p.cnpsPatronale)}</td><td><button class="btn small ghost" onclick="printBulletin(${r.id})">Voir bulletin</button></td></tr>`;
+    return `<tr><td>${r.employe||""}</td><td>${r.periode||""}</td><td>${fmt(p.brutSocial)}</td><td>${fmt(p.cnpsSalariale)}</td><td>${fmt(p.cnpsPatronale)}</td><td>${fmt(p.cnpsSalariale+p.cnpsPatronale)}</td><td><button class="btn small ghost" data-act="printBulletin" data-a="${esc(JSON.stringify([r.id]))}">Voir bulletin</button></td></tr>`;
   }).join("");
   document.getElementById("content").innerHTML = `
     <h1 class="page-title">CNPS</h1><div class="page-sub">Calculé en direct à partir des bulletins de paie (taux définis sous Paramètres &gt; Paie — Taux &amp; plafonds)</div>
@@ -3821,15 +3869,15 @@ async function renderRelances(){
       <td>${fmt(r.montantTTC)}</td><td><b>${fmt(r.solde)}</b></td>
       <td><span class="badge ${niveau(r.joursRetard)}">${r.joursRetard} jour(s)</span></td>
       <td style="display:flex; gap:6px;">
-        <button class="btn small ghost" onclick="printFacture('factures', ${r.id})">Voir facture</button>
-        <button class="btn small ghost" onclick="genererLettreRelance(${r.id})">Lettre de relance</button>
+        <button class="btn small ghost" data-act="printFacture" data-a="${esc(JSON.stringify(['factures', r.id]))}">Voir facture</button>
+        <button class="btn small ghost" data-act="genererLettreRelance" data-a="${esc(JSON.stringify([r.id]))}">Lettre de relance</button>
       </td>
     </tr>`).join("");
   document.getElementById("content").innerHTML = `
     <h1 class="page-title">Relances clients</h1>
     <div class="page-sub">Factures de vente non soldées, triées par ancienneté — total dû : <b>${fmt(totalDu)}</b> sur ${rows.length} facture(s)</div>
     <div class="toolbar" style="margin-bottom:10px;">
-      <button class="btn small" onclick="exportRelancesPDF()" ${rows.length===0?"disabled":""}>📄 Exporter en PDF</button>
+      <button class="btn small" data-act="exportRelancesPDF" ${rows.length===0?"disabled":""}>📄 Exporter en PDF</button>
     </div>
     <div class="table-wrap">
       ${rows.length===0 ? `<div class="empty"><div class="big">✅</div>Aucune facture client en attente de règlement.</div>` : `
@@ -3878,7 +3926,7 @@ async function exportRelancesPDF(){
     .totaux .grand{font-weight:800; font-size:14px; color:#1F3864; border-top:2px solid #1F3864;}
     @media print{ .noprint{display:none;} }
   </style></head>
-  <body onload="window.print()">
+  <body>
     <div class="top">
       <div class="identite">
         ${societe.logo ? `<img src="${societe.logo}" alt="logo">` : ""}
@@ -3894,10 +3942,10 @@ async function exportRelancesPDF(){
     <table><thead><tr><th>N° facture</th><th>Date</th><th>Client</th><th>Montant TTC</th><th>Solde dû</th><th>Retard</th></tr></thead>
     <tbody>${lignesHtml}</tbody></table>
     <table class="totaux"><tr><td class="grand">Total dû (${rows.length} facture(s))</td><td class="grand">${fmt(totalDu)}</td></tr></table>
-    <button class="noprint" style="margin-top:14px;" onclick="window.print()">Imprimer / Enregistrer en PDF</button>
+    <button class="noprint" style="margin-top:14px;" data-print="1">Imprimer / Enregistrer en PDF</button>
   </body></html>`;
   const w = window.open("", "_blank");
-  w.document.write(html);
+  w.document.write(html); w.document.close(); cablerImpression(w);
   w.document.close();
 }
 
@@ -3929,7 +3977,7 @@ async function genererLettreRelance(id){
     .signature{margin-top:50px;}
     @media print{ .noprint{display:none;} }
   </style></head>
-  <body onload="window.print()">
+  <body>
     <div class="top">
       <div class="identite">
         ${societe.logo ? `<img src="${societe.logo}" alt="logo">` : ""}
@@ -3957,10 +4005,10 @@ async function genererLettreRelance(id){
     <p>Nous vous remercions de bien vouloir procéder au règlement de ce solde dans les meilleurs délais. Si votre paiement a déjà été effectué, nous vous prions de ne pas tenir compte de la présente relance et de nous transmettre votre justificatif de paiement.</p>
     <p>Restant à votre disposition pour tout renseignement complémentaire, nous vous prions d'agréer, Madame, Monsieur, l'expression de nos salutations distinguées.</p>
     <div class="signature">${escXml(societe.raison||"Kayely Group")}</div>
-    <button class="noprint" style="margin-top:20px;" onclick="window.print()">Imprimer / Enregistrer en PDF</button>
+    <button class="noprint" style="margin-top:20px;" data-print="1">Imprimer / Enregistrer en PDF</button>
   </body></html>`;
   const w = window.open("", "_blank");
-  w.document.write(html);
+  w.document.write(html); w.document.close(); cablerImpression(w);
   w.document.close();
 }
 
@@ -4016,9 +4064,9 @@ async function renderDashboardCompta(){
       : `<span class="badge danger">⚠️ Déséquilibre détecté : débit ≠ crédit — vérifiez le Journal</span>`}
       ${Math.abs(er.bilan.ecart) < 0.5 ? `<span class="badge ok">✅ Bilan équilibré</span>` : `<span class="badge danger">⚠️ Bilan déséquilibré de ${fmt(er.bilan.ecart)}</span>`}</div>
     <div class="toolbar" style="margin-top:14px;">
-      <button class="btn small ghost" onclick="renderRoute('etatsFinanciers')">Voir les états financiers</button>
-      <button class="btn small ghost" onclick="renderRoute('declarationTva')">Voir la déclaration de TVA</button>
-      <button class="btn small ghost" onclick="renderRoute('balance')">Voir la balance</button>
+      <button class="btn small ghost" data-act="renderRoute" data-a="${esc(JSON.stringify(['etatsFinanciers']))}">Voir les états financiers</button>
+      <button class="btn small ghost" data-act="renderRoute" data-a="${esc(JSON.stringify(['declarationTva']))}">Voir la déclaration de TVA</button>
+      <button class="btn small ghost" data-act="renderRoute" data-a="${esc(JSON.stringify(['balance']))}">Voir la balance</button>
     </div>`;
   await syncPeriodeInputs();
 }
@@ -4050,8 +4098,8 @@ async function renderSoldesTresorerie(){
     <h1 class="page-title">Soldes par caisse et banque</h1>
     <div class="page-sub">Solde initial + mouvements du Journal sur le compte de chaque caisse et banque — total : <b>${fmt(total)}</b></div>
     <div class="toolbar">
-      <button class="btn small ghost" onclick="renderRoute('virementsInternes')">↔️ Virements internes</button>
-      <button class="btn small ghost" onclick="renderRoute('rapprochementAuto')">🏦 Rapprochement bancaire</button>
+      <button class="btn small ghost" data-act="renderRoute" data-a="${esc(JSON.stringify(['virementsInternes']))}">↔️ Virements internes</button>
+      <button class="btn small ghost" data-act="renderRoute" data-a="${esc(JSON.stringify(['rapprochementAuto']))}">🏦 Rapprochement bancaire</button>
     </div>
     <div class="table-wrap"><table>
       <thead><tr><th>Type</th><th>Caisse / banque</th><th>Compte</th><th>Solde initial</th><th>Entrées</th><th>Sorties</th><th>Solde</th></tr></thead>
@@ -4291,14 +4339,14 @@ async function renderRapprochementAuto(imprimer){
     <div class="page-sub">Importez le relevé de la banque (Excel ou CSV : colonnes Date, Libellé, Débit/Crédit ou Montant). Les lignes sont rapprochées des écritures du compte (même montant, date à ${RAPPRO_JOURS} jours près).</div>
     <div class="toolbar" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
       <label style="font-size:12px; color:#5B6479;">Banque</label>
-      <select onchange="rapproBanque=this.value; rapproReleveId=null; renderRapprochementAuto()" style="width:auto;">
+      <select data-act="setRapproBanque" data-on="change" data-a="${esc(JSON.stringify(['@v']))}" style="width:auto;">
         ${banques.map(b => `<option value="${esc(b.nom)}" ${b.nom===rapproBanque?"selected":""}>${esc(b.nom)} (${esc(b.compteOhada||"521")})</option>`).join("")}</select>
-      <button class="btn gold" onclick="choisirFichierReleve()">⬆️ Importer un relevé</button>
+      <button class="btn gold" data-act="choisirFichierReleve">⬆️ Importer un relevé</button>
       ${releves.length ? `<label style="font-size:12px; color:#5B6479;">Relevé</label>
-        <select onchange="rapproReleveId=Number(this.value); renderRapprochementAuto()" style="width:auto;">
+        <select data-act="setRapproReleve" data-on="change" data-a="${esc(JSON.stringify(['@v']))}" style="width:auto;">
         ${releves.map(r => `<option value="${r.id}" ${r.id===rapproReleveId?"selected":""}>${esc(r.numero||"")} — ${fmtDateFr(r.dateReleve)} ${r.fichier ? "("+esc(r.fichier)+")" : ""}</option>`).join("")}</select>` : ""}
-      ${releve ? `<button class="btn small ghost" onclick="relancerRapprochement(${releve.id})">🔄 Relancer le rapprochement</button>
-        <button class="btn small ghost" onclick="renderRapprochementAuto(true)">🖨️ État de rapprochement</button>` : ""}
+      ${releve ? `<button class="btn small ghost" data-act="relancerRapprochement" data-a="${esc(JSON.stringify([releve.id]))}">🔄 Relancer le rapprochement</button>
+        <button class="btn small ghost" data-act="renderRapprochementAuto" data-a="${esc(JSON.stringify([true]))}">🖨️ État de rapprochement</button>` : ""}
     </div>
     ${!releve ? `<div class="table-wrap"><div class="empty"><div class="big">🏦</div>Aucun relevé importé pour ${esc(rapproBanque)}.</div></div>` : `
     <div class="kpis" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin:14px 0;">
@@ -4313,9 +4361,9 @@ async function renderRapprochementAuto(imprimer){
         <td>${esc(fmtDateFr(l.date))}</td><td>${esc(l.libelle)}</td><td>${fmt(l.montant)}</td><td>${badge(l)}</td>
         <td>${l.ecriture ? esc(fmtDateFr(l.ecriture.date)) + " — " + esc(l.ecriture.piece||"") + " — " + esc((l.ecriture.libelle||"").slice(0,40)) : ""}</td>
         <td>${l.ecriture
-          ? `<button class="btn small ghost" onclick="annulerLigneReleve(${releve.id}, ${l.i})">Annuler</button>`
-          : `<button class="btn small" onclick="comptabiliserLigneReleve(${releve.id}, ${l.i})">Comptabiliser</button>
-             ${suspensOptions(l) ? `<select onchange="lierLigneReleve(${releve.id}, ${l.i}, this.value)" style="width:auto; max-width:260px;"><option value="">Rapprocher avec…</option>${suspensOptions(l)}</select>` : ""}`}</td>
+          ? `<button class="btn small ghost" data-act="annulerLigneReleve" data-a="${esc(JSON.stringify([releve.id, l.i]))}">Annuler</button>`
+          : `<button class="btn small" data-act="comptabiliserLigneReleve" data-a="${esc(JSON.stringify([releve.id, l.i]))}">Comptabiliser</button>
+             ${suspensOptions(l) ? `<select data-act="lierLigneReleve" data-on="change" data-a="${esc(JSON.stringify([releve.id, l.i, '@v']))}" style="width:auto; max-width:260px;"><option value="">Rapprocher avec…</option>${suspensOptions(l)}</select>` : ""}`}</td>
       </tr>`).join("")}</tbody>
     </table></div>
     ${sit.suspens.length ? `<h3 style="margin:18px 0 8px;">Écritures en suspens (passées en comptabilité, pas encore sur le relevé)</h3>
@@ -4577,9 +4625,9 @@ async function renderLiasse(action){
     <div class="page-sub">Exercice du ${fmtDateFr(du)} au ${fmtDateFr(au)}, comparé à ${exN1} — références de lignes de la DGI, montants calculés depuis le Journal</div>
     ${periodeToolbar("renderLiasse")}
     <div class="toolbar" style="display:flex; gap:8px; flex-wrap:wrap;">
-      ${onglets.map(([k, l]) => `<button class="btn small ${k===liasseOnglet ? "gold" : "ghost"}" onclick="liasseOnglet='${k}'; renderLiasse()">${l}</button>`).join("")}
-      <button class="btn small" onclick="renderLiasse('imprimer')">🖨️ Imprimer la liasse</button>
-      <button class="btn small ghost" onclick="renderLiasse('excel')">⬇️ Exporter Excel</button>
+      ${onglets.map(([k, l]) => `<button class="btn small ${k===liasseOnglet ? "gold" : "ghost"}" data-act="setLiasseOnglet" data-a="${esc(JSON.stringify([k]))}">${l}</button>`).join("")}
+      <button class="btn small" data-act="renderLiasse" data-a="${esc(JSON.stringify(['imprimer']))}">🖨️ Imprimer la liasse</button>
+      <button class="btn small ghost" data-act="renderLiasse" data-a="${esc(JSON.stringify(['excel']))}">⬇️ Exporter Excel</button>
     </div>
     ${manquants.length ? `<div class="page-sub"><span class="badge warn">À compléter dans Paramètres &gt; Société : ${esc(manquants.join(", "))}</span></div>` : ""}
     <div class="table-wrap">${contenu}</div>
@@ -4635,10 +4683,10 @@ function periodeToolbar(renderFn, exportFn){
   return `<div class="toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
     <label style="font-size:12px; color:#5B6479;">Du</label><input type="date" id="perDu" value="${esc(p.du||"")}" style="width:auto;">
     <label style="font-size:12px; color:#5B6479;">au</label><input type="date" id="perAu" value="${esc(p.au||"")}" style="width:auto;">
-    <button class="btn small" onclick="appliquerPeriode('${renderFn}')">Appliquer</button>
-    <button class="btn small ghost" onclick="periodeCompta=null; ${renderFn}()">Exercice en cours</button>
-    ${exportFn ? `<button class="btn small ghost" onclick="${exportFn}()">⬇️ Exporter Excel</button>` : ""}
-    ${renderFn === "renderEtatsFinanciers" || renderFn === "renderDeclarationTva" ? `<button class="btn small gold" onclick="${renderFn}(true)">🖨️ Imprimer</button>` : ""}
+    <button class="btn small" data-act="appliquerPeriode" data-a="${esc(JSON.stringify([renderFn]))}">Appliquer</button>
+    <button class="btn small ghost" data-act="rechargerPeriode" data-a="${esc(JSON.stringify([renderFn]))}">Exercice en cours</button>
+    ${exportFn ? `<button class="btn small ghost" data-act="${exportFn}">⬇️ Exporter Excel</button>` : ""}
+    ${renderFn === "renderEtatsFinanciers" || renderFn === "renderDeclarationTva" ? `<button class="btn small gold" data-act="${renderFn}" data-a="${esc(JSON.stringify([true]))}">🖨️ Imprimer</button>` : ""}
   </div>`;
 }
 async function appliquerPeriode(renderFn){
@@ -4678,8 +4726,8 @@ function ouvrirImpression(titre, corps){
     th,td{border:1px solid #ccc; padding:5px 8px;} th{background:#EEF2F9; text-align:left;} td.n{text-align:right; font-variant-numeric:tabular-nums;}
     tr.tot td{font-weight:700; background:#F4F6FA;} .two{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
     @media print{ .noprint{display:none;} }
-  </style></head><body onload="window.print()">${corps}<button class="noprint" onclick="window.print()">Imprimer</button></body></html>`);
-  w.document.close();
+  </style></head><body>${corps}<button class="noprint" data-print="1">Imprimer</button></body></html>`);
+  w.document.close(); cablerImpression(w);
 }
 
 /* ---------------------------------------------------------
@@ -4889,8 +4937,8 @@ async function openPieceForm(){
     <div class="field"><label>Libellé commun</label><input id="pc_libelle" placeholder="ex. Loyer du mois de mars"></div>
     <div id="pieceEditor"></div>
     <div class="modal-actions">
-      <button class="btn ghost" onclick="closeModal()">Annuler</button>
-      <button class="btn gold" onclick="savePiece()">Enregistrer la pièce</button>
+      <button class="btn ghost" data-act="closeModal">Annuler</button>
+      <button class="btn gold" data-act="savePiece">Enregistrer la pièce</button>
     </div>`;
   renderPieceEditor();
   document.getElementById("overlay").classList.add("show");
@@ -4901,16 +4949,16 @@ function renderPieceEditor(){
     <thead><tr><th style="text-align:left;font-size:11px;">Compte</th><th style="text-align:left;font-size:11px;">Libellé</th>
       <th style="text-align:right;font-size:11px;width:120px;">Débit</th><th style="text-align:right;font-size:11px;width:120px;">Crédit</th><th style="width:30px;"></th></tr></thead>
     <tbody>${pieceLignes.map((l,i) => `<tr>
-      <td style="padding:3px;"><input list="planComptes" value="${esc(l.compte)}" oninput="majPiece(${i},'compte',this.value)" style="width:100%;"></td>
-      <td style="padding:3px;"><input value="${esc(l.libelle)}" oninput="majPiece(${i},'libelle',this.value)" style="width:100%;"></td>
-      <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${l.debit||""}" oninput="majPiece(${i},'debit',this.value)" style="width:100%;text-align:right;"></td>
-      <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${l.credit||""}" oninput="majPiece(${i},'credit',this.value)" style="width:100%;text-align:right;"></td>
-      <td><button type="button" onclick="pieceLignes.splice(${i},1); if(!pieceLignes.length) pieceLignes.push({compte:'',libelle:'',debit:0,credit:0}); renderPieceEditor()" style="background:none;border:none;color:#B3261E;cursor:pointer;">✕</button></td>
+      <td style="padding:3px;"><input list="planComptes" value="${esc(l.compte)}" data-act="majPiece" data-on="input" data-a="${esc(JSON.stringify([i, 'compte', '@v']))}" style="width:100%;"></td>
+      <td style="padding:3px;"><input value="${esc(l.libelle)}" data-act="majPiece" data-on="input" data-a="${esc(JSON.stringify([i, 'libelle', '@v']))}" style="width:100%;"></td>
+      <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${l.debit||""}" data-act="majPiece" data-on="input" data-a="${esc(JSON.stringify([i, 'debit', '@v']))}" style="width:100%;text-align:right;"></td>
+      <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${l.credit||""}" data-act="majPiece" data-on="input" data-a="${esc(JSON.stringify([i, 'credit', '@v']))}" style="width:100%;text-align:right;"></td>
+      <td><button type="button" data-act="removePieceLigne" data-a="${esc(JSON.stringify([i]))}" style="background:none;border:none;color:#B3261E;cursor:pointer;">✕</button></td>
     </tr>`).join("")}</tbody>
     <tfoot><tr><td colspan="2" style="text-align:right;font-weight:700;padding:6px;">Totaux</td>
       <td id="pcTotD" style="text-align:right;font-weight:700;"></td><td id="pcTotC" style="text-align:right;font-weight:700;"></td><td></td></tr>
       <tr><td colspan="5" id="pcEcart" style="text-align:right;padding:4px;"></td></tr></tfoot></table>
-    <button type="button" class="btn small ghost" onclick="pieceLignes.push({compte:'',libelle:'',debit:0,credit:0}); renderPieceEditor()">+ Ajouter une ligne</button>`;
+    <button type="button" class="btn small ghost" data-act="addPieceLigne">+ Ajouter une ligne</button>`;
   majTotauxPiece();
 }
 function majPiece(i, champ, v){
@@ -5234,7 +5282,7 @@ async function printBulletin(id){
     .noprint{margin-top:14px;}
     @media print{ .noprint{display:none;} .sheet{padding:0;} }
   </style></head>
-  <body onload="window.print()">
+  <body>
   <div class="sheet">
 
     <table class="headtop">
@@ -5349,11 +5397,11 @@ async function printBulletin(id){
       <span><b>${societe.raison || "KAYELY GESTION PRO"}</b></span>
     </div>
 
-    <button class="noprint" onclick="window.print()">Imprimer</button>
+    <button class="noprint" data-print="1">Imprimer</button>
   </div>
   </body></html>`;
   const w = window.open("", "_blank");
-  w.document.write(html);
+  w.document.write(html); w.document.close(); cablerImpression(w);
   w.document.close();
 }
 
@@ -5378,7 +5426,7 @@ async function printTicket(storeKey, id){
     .lbl{color:#444;} .val{text-align:right; font-weight:700;}
     @media print{ .noprint{display:none;} }
   </style></head>
-  <body onload="window.print()">
+  <body>
     ${societe.logo ? `<div class="center"><img src="${societe.logo}" alt="logo"></div>` : ""}
     <h2>${societe.raison || "KAYELY GESTION PRO"}</h2>
     <div class="center">${mod.label}</div>
@@ -5396,10 +5444,10 @@ async function printTicket(storeKey, id){
     <table><tr><td class="lbl" style="font-weight:700;">MONTANT</td><td class="val" style="font-size:15px;">${fmt(montant)}</td></tr></table>
     <hr>
     <div class="center">Compte OHADA ${mod.compte} / contrepartie ${r.contrepartie||""}</div>
-    <button class="noprint" onclick="window.print()">Imprimer</button>
+    <button class="noprint" data-print="1">Imprimer</button>
   </body></html>`;
   const w = window.open("", "_blank");
-  w.document.write(html);
+  w.document.write(html); w.document.close(); cablerImpression(w);
   w.document.close();
 }
 
@@ -5633,7 +5681,7 @@ function kgpShowTrialBanner(daysLeft){
   const b = document.getElementById("trialBanner");
   b.style.background = "var(--gold)";
   b.innerHTML = `Version d'essai — ${daysLeft} jour${daysLeft>1?"s":""} restant${daysLeft>1?"s":""} avant activation obligatoire.
-    <button onclick="kgpOpenActivation(false, false)">Activer maintenant</button>`;
+    <button data-act="kgpOpenActivation" data-a="${esc(JSON.stringify([false, false]))}">Activer maintenant</button>`;
   b.style.display = "block";
 }
 
@@ -5642,7 +5690,7 @@ function kgpShowRenewalBanner(daysLeft){
   const urgent = daysLeft <= 7;
   b.style.background = urgent ? "var(--danger)" : "var(--gold)";
   b.innerHTML = `⏰ Votre licence KAYELY GESTION PRO expire dans ${daysLeft} jour${daysLeft>1?"s":""} — pensez à la renouveler.
-    <button onclick="kgpOpenActivation(false, true)">Renouveler maintenant</button>`;
+    <button data-act="kgpOpenActivation" data-a="${esc(JSON.stringify([false, true]))}">Renouveler maintenant</button>`;
   b.style.display = "block";
 }
 

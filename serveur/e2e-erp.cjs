@@ -42,7 +42,9 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
       if (!c.ok) process.exit(1);
       // La console crée désormais l'administrateur de la société ; ce test part d'une base vierge.
       const { DatabaseSync } = require("node:sqlite");
+      await new Promise(r => setTimeout(r, 300));   // laisse le serveur PHP relâcher le fichier
       const db = new DatabaseSync(${JSON.stringify(path.join(data, "societes", "demo.sqlite"))});
+      db.exec("PRAGMA busy_timeout = 4000");
       for (const t of ["records", "sessions", "audit", "login_fails"]) db.exec("DELETE FROM " + t);
       db.close();
     })();`], { stdio: "inherit" });
@@ -491,7 +493,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   await p4.evaluate(() => openForm("factures")); await p4.waitForSelector("#overlay.show");
   await p4.fill("#f_date", "2026-03-21"); await p4.selectOption("#f_client", "Client Alpha");
   await p4.selectOption("#lignesEditor select", "Pose");
-  await p4.fill("#lignesEditor input[oninput*='prixUnitaire']", "1");          // prix baissé à la main
+  await p4.fill("#lignesEditor input[data-a*='prixUnitaire']", "1");          // prix baissé à la main
   await p4.fill("#f_tvaPct", "18"); await p4.fill("#f_montantRegle", "0");
   await afterToast(p4, () => p4.click("#overlay .modal-actions .btn.gold"));
   const msg4 = await p4.evaluate(() => window.__toasts[window.__toasts.length - 1]);

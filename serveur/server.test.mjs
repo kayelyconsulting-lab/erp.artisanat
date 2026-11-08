@@ -380,9 +380,15 @@ test("en-têtes de sécurité", async () => {
   assert.equal(api.headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(api.headers.get("strict-transport-security"), null, "HSTS seulement en HTTPS");
   const page = await fetch(base + "/");
+  const html = await page.text();
   const csp = page.headers.get("content-security-policy") || "";
   assert.match(csp, /default-src 'self'/); assert.match(csp, /frame-ancestors 'none'/);
   assert.doesNotMatch(csp, /https?:\/\//, "aucune source extérieure autorisée");
+  // Le script de la page est autorisé par un nonce, pas par 'unsafe-inline'.
+  const nonce = /script-src [^;]*'nonce-([A-Za-z0-9_-]+)'/.exec(csp);
+  assert.ok(nonce, "script-src doit utiliser un nonce");
+  assert.doesNotMatch(csp.match(/script-src [^;]*/)[0], /'unsafe-inline'/, "script-src sans 'unsafe-inline'");
+  assert.ok(html.includes(`<script nonce="${nonce[1]}">`), "le script de la page porte le nonce");
   assert.equal(page.headers.get("x-powered-by"), null);
   const https = await fetch(base + "/api/status", { headers: { "X-Forwarded-Proto": "https" } });
   assert.match(https.headers.get("strict-transport-security") || "", /max-age=31536000/);
