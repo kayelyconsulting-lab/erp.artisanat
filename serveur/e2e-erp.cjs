@@ -89,16 +89,21 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
     const n = await page.evaluate(async () => {
       const garder = new Set(["utilisateurs", "planComptable", "baremeIts", "paieParametres", "societe"]);
       let n = 0;
-      for (const sec of SECTIONS) for (const m of sec.modules){
-        if (m.readonly || garder.has(m.key)) continue;
-        for (const rec of await getAll(m.key)){
+      const viderStore = async key => {
+        for (const rec of await getAll(key)){
           // coupures réseau possibles (test à distance) : jusqu'à 3 essais par suppression
           for (let essai = 0; ; essai++){
-            try { await deleteRecord(m.key, rec.id); break; }
+            try { await deleteRecord(key, rec.id); break; }
             catch(e){ if (essai >= 2 || e.status === 404) throw e; await new Promise(r => setTimeout(r, 1500)); }
           }
           n++;
         }
+      };
+      // D'abord les pièces liées (le serveur refuse de supprimer une facture encore réglée).
+      for (const key of ["reglements", "avoirs", "stockSorties", "stockEntrees"]) await viderStore(key);
+      for (const sec of SECTIONS) for (const m of sec.modules){
+        if (m.readonly || garder.has(m.key)) continue;
+        await viderStore(m.key);
       }
       for (const u of await getAll("utilisateurs")) if (u.login !== "admin"){ await deleteRecord("utilisateurs", u.id); n++; }
       const soc = (await getAll("societe"))[0];
