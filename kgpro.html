@@ -2279,14 +2279,17 @@ async function removeRecord(storeKey, id){
   const lie = anciennesPieces(storeKey, existing) ? " Les écritures comptables générées par cette pièce seront aussi supprimées." : "";
   if (!confirm("Supprimer cet enregistrement ?" + lie)) return;
   // Retire tout ce que la pièce a généré : écritures, mouvements de stock, lien devis -> facture.
-  await supprimerEcritures(storeKey, existing, true);
-  if (storeKey === "factures"){
-    await removeStockSortiesForFacture(existing.numero);
-    for (const d of (await getAllSafe("devis")).filter(d => d.factureNumero && d.factureNumero === existing.numero)){
-      delete d.factureNumero; await putRecord("devis", d);
+  // En mode serveur, le serveur s'en charge lui-même à la suppression (tranche 1).
+  if (!(KGP_SERVER && MODULES_COMPTA_SERVEUR.has(storeKey))){
+    await supprimerEcritures(storeKey, existing, true);
+    if (storeKey === "factures"){
+      await removeStockSortiesForFacture(existing.numero);
+      for (const d of (await getAllSafe("devis")).filter(d => d.factureNumero && d.factureNumero === existing.numero)){
+        delete d.factureNumero; await putRecord("devis", d);
+      }
     }
+    if (storeKey === "facturesAchat") await removeStockEntreesForFactureAchat(existing.numero);
   }
-  if (storeKey === "facturesAchat") await removeStockEntreesForFactureAchat(existing.numero);
   await deleteRecord(storeKey, id);
   toast("Enregistrement supprimé");
   renderModuleList(MODULE_INDEX[storeKey].mod);
@@ -2972,12 +2975,30 @@ function lignesReglement(record, achat, comptes){
 }
 
 /* Génère (ou régénère) les écritures et mouvements liés à une pièce. Renvoie le message à afficher. */
+/* Modules dont la comptabilisation (écritures + stock) est faite par le serveur en mode serveur :
+   le navigateur ne la refait pas, pour que le grand livre ne puisse pas être désynchronisé. */
+const MODULES_COMPTA_SERVEUR = new Set(["factures","avoirs","facturesAchat","stockEntrees","treso_caisse","reglements","virementsInternes"]);
+function messageComptaServeur(storeKey, record){
+  const n = record.numero || "";
+  switch (storeKey){
+    case "factures": return "Facture "+n+" enregistrée — écritures comptables et sortie de stock générées automatiquement";
+    case "facturesAchat": return "Facture d'achat "+n+" enregistrée — écritures comptables et entrée en stock générées automatiquement";
+    case "avoirs": return "Avoir "+n+" enregistré — écriture comptable générée automatiquement";
+    case "stockEntrees": return record.auto ? "Entrée stock mise à jour (liée à la facture d'achat, déjà comptabilisée)" : "Entrée stock enregistrée — écriture comptable générée automatiquement";
+    case "treso_caisse": return "Ticket "+n+" enregistré — écriture comptable générée automatiquement";
+    case "reglements": return "Règlement "+n+" enregistré sur "+(record.factureRef||"")+" — écriture comptable générée automatiquement";
+    case "virementsInternes": return "Virement "+n+" enregistré — écriture comptable générée automatiquement";
+  }
+  return "";
+}
 async function comptabiliser(storeKey, record){
   const mod = MODULE_INDEX[storeKey].mod;
   const src = journalSource(storeKey, record.id);
   const special = mod.special;
   const comptabilisable = ["factures","avoirs","facturesAchat","stockEntree","treso","paie","immobilisations","reglement","virement"].includes(special);
   if (!comptabilisable) return "";
+  // En mode serveur, le serveur a déjà généré ces écritures et mouvements (tranche 1).
+  if (KGP_SERVER && MODULES_COMPTA_SERVEUR.has(storeKey)) return messageComptaServeur(storeKey, record);
   await supprimerEcritures(storeKey, record, false);
   const comptesT = await comptesTresorerie();
 

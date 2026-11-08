@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { loadSchema } from "./schema.mjs";
 import { validateRecord, ValidationError } from "./validation.mjs";
 import { appliquerMontants, MODULES_MONTANTS } from "./montants.mjs";
+import { comptabiliser, supprimerComptabilisation, blocageSuppression, MODULES_COMPTA } from "./comptabilisation.mjs";
 import { openDatabase } from "./db.mjs";
 import {
   hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, LEGACY_DEFAULT_PASSWORDS,
@@ -238,6 +239,8 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
       }
       db.put(mod.key, id, record, user.id);
       db.audit(user.id, existing ? "update" : "create", mod.key, id);
+      // Écritures comptables et mouvements de stock générés par le serveur (grand livre fiable).
+      if (MODULES_COMPTA.has(mod.key)) comptabiliser(db, mod.key, { ...record, id }, user.id);
       return id;
     });
   }
@@ -260,7 +263,14 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
         if (activeAdminsExcept(id, null) === 0) throw new ValidationError(["Il doit rester au moins un administrateur actif."]);
         db.sessions.deleteOthers(id, "");
       }
-      assertOpen(mod.key, db.get(mod.key, id));
+      const rec = db.get(mod.key, id);
+      if (MODULES_COMPTA.has(mod.key) && rec){
+        const blocage = blocageSuppression(db, mod.key, rec);
+        if (blocage) throw new ValidationError([blocage]);
+      }
+      assertOpen(mod.key, rec);
+      // Retire d'abord les écritures et mouvements de stock générés par la pièce.
+      if (MODULES_COMPTA.has(mod.key) && rec) supprimerComptabilisation(db, mod.key, rec, user.id);
       const ok = db.delete(mod.key, id);
       if (ok) db.audit(user.id, "delete", mod.key, id);
       return ok;

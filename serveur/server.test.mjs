@@ -94,6 +94,56 @@ test("références vers d'autres fiches et lignes de facture recalculées", asyn
   assert.equal((await admin("PUT", "/api/data/factures", { ...fact, id: ok.data.id })).status, 200);
 });
 
+test("comptabilisation générée par le serveur (journal + stock)", async () => {
+  const sourceEntries = async src => (await admin("GET", "/api/data/journal")).data.filter(e => e.source === src);
+  const equilibre = l => Math.abs(l.reduce((s, e) => s + (e.debit || 0) - (e.credit || 0), 0)) < 0.001;
+
+  assert.equal((await admin("PUT", "/api/data/clients", { nom: "Client compta" })).status, 200);
+  assert.equal((await admin("PUT", "/api/data/articles", { designation: "Table compta", prixVente: 10000, tva: 18 })).status, 200);
+  const f = await admin("PUT", "/api/data/factures", { client: "Client compta", date: "2026-05-02", numero: "FA-9001",
+    tvaPct: 18, timbreQuittance: 0, montantRegle: 5000, modeReglement: "Caisse",
+    lignes: [{ designation: "Table compta", quantite: 2, prixUnitaire: 10000 }] });
+  assert.equal(f.status, 200, JSON.stringify(f.data));
+  const src = "factures#" + f.data.id;
+  let ecr = await sourceEntries(src);
+  assert.equal(ecr.length, 5, "5 écritures générées par le serveur");
+  assert.ok(equilibre(ecr), "pièce équilibrée");
+  assert.equal(ecr.find(e => e.compte === "701").credit, 20000, "vente HT");
+  assert.equal(ecr.find(e => e.compte === "4431").credit, 3600, "TVA facturée");
+  assert.equal(ecr.find(e => e.compte === "571" && e.debit > 0).debit, 5000, "acompte encaissé en caisse");
+  // le navigateur n'a rien envoyé : les écritures ne viennent que du serveur
+  let sorties = (await admin("GET", "/api/data/stockSorties")).data.filter(s => s.factureRef === "FA-9001" && s.auto);
+  assert.equal(sorties.length, 1); assert.equal(sorties[0].quantite, 2);
+
+  // Modification de la facture : écritures et stock régénérés, jamais cumulés
+  assert.equal((await admin("PUT", "/api/data/factures", { id: f.data.id, client: "Client compta", date: "2026-05-02", numero: "FA-9001",
+    tvaPct: 18, timbreQuittance: 0, montantRegle: 5000, modeReglement: "Caisse",
+    lignes: [{ designation: "Table compta", quantite: 3, prixUnitaire: 10000 }] })).status, 200);
+  ecr = await sourceEntries(src);
+  assert.equal(ecr.length, 5, "toujours 5 écritures après modification");
+  assert.ok(equilibre(ecr));
+  assert.equal(ecr.find(e => e.compte === "701").credit, 30000, "vente HT mise à jour");
+  sorties = (await admin("GET", "/api/data/stockSorties")).data.filter(s => s.factureRef === "FA-9001" && s.auto);
+  assert.equal(sorties.length, 1); assert.equal(sorties[0].quantite, 3, "stock régénéré");
+
+  // Règlement : écriture générée par le serveur
+  const r = await admin("PUT", "/api/data/reglements", { date: "2026-05-03", type: "Encaissement client", factureVente: "FA-9001", montant: 5000, modeReglement: "Caisse" });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const er = await sourceEntries("reglements#" + r.data.id);
+  assert.equal(er.length, 2); assert.ok(equilibre(er));
+  assert.equal(er.find(e => e.compte === "411").credit, 5000);
+
+  // Suppression : facture encore liée à un règlement -> refusée
+  const bloq = await admin("DELETE", "/api/data/factures/" + f.data.id);
+  assert.equal(bloq.status, 422); assert.match(bloq.data.error, /règlement/);
+  // on retire le règlement (ses écritures partent), puis la facture (écritures + stock partent)
+  assert.equal((await admin("DELETE", "/api/data/reglements/" + r.data.id)).status, 200);
+  assert.equal((await sourceEntries("reglements#" + r.data.id)).length, 0);
+  assert.equal((await admin("DELETE", "/api/data/factures/" + f.data.id)).status, 200);
+  assert.equal((await sourceEntries(src)).length, 0, "écritures retirées");
+  assert.equal((await admin("GET", "/api/data/stockSorties")).data.filter(s => s.factureRef === "FA-9001" && s.auto).length, 0, "stock retiré");
+});
+
 test("droits par rôle", async () => {
   const mk = (login, role) => admin("PUT", "/api/data/utilisateurs", { nom: login, login, motDePasse: "Initial-2026", role, statut: "Actif", dateExpiration: "" });
   assert.equal((await mk("caisse", "Caissier(e)")).status, 200);

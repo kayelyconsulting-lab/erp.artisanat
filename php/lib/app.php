@@ -4,6 +4,7 @@
 declare(strict_types=1);
 require __DIR__ . '/validation.php';
 require __DIR__ . '/montants.php';
+require __DIR__ . '/comptabilisation.php';
 
 // Jamais de détail technique dans les réponses (chemins, traces) : tout part dans le
 // journal du serveur, sans les arguments des fonctions (codes secrets, fiches...).
@@ -412,6 +413,8 @@ function kgp_save(array $user, string $store, $input, string $sessionHash, ?arra
     }
     kgp_put($mod['key'], $id, $record, $user['id']);
     kgp_audit($user['id'], $existing ? 'update' : 'create', $mod['key'], $id);
+    // Écritures comptables et mouvements de stock générés par le serveur (grand livre fiable).
+    if (kgp_est_comptabilisable($mod['key'])) kgp_comptabiliser($mod['key'], $record + ['id' => $id], $user['id']);
     return $id;
   });
 }
@@ -433,7 +436,14 @@ function kgp_remove(array $user, string $store, int $id): bool {
       if (kgp_active_admins_except($id, null) === 0) throw new ValidationError(['Il doit rester au moins un administrateur actif.']);
       kgp_delete_other_sessions($id);
     }
-    kgp_assert_open($mod['key'], kgp_get($mod['key'], $id));
+    $rec = kgp_get($mod['key'], $id);
+    if ($rec && kgp_est_comptabilisable($mod['key'])){
+      $blocage = kgp_blocage_suppression($mod['key'], $rec);
+      if ($blocage !== '') throw new ValidationError([$blocage]);
+    }
+    kgp_assert_open($mod['key'], $rec);
+    // Retire d'abord les écritures et mouvements de stock générés par la pièce.
+    if ($rec && kgp_est_comptabilisable($mod['key'])) kgp_supprimer_comptabilisation($mod['key'], $rec, $user['id']);
     $ok = kgp_delete($mod['key'], $id);
     if ($ok) kgp_audit($user['id'], 'delete', $mod['key'], $id);
     return $ok;
