@@ -88,6 +88,8 @@ test("références vers d'autres fiches et lignes de facture recalculées", asyn
   assert.match((await admin("PUT", "/api/data/factures", { ...fact })).data.error, /déjà utilisé/);
   assert.equal((await admin("PUT", "/api/data/factures", { ...fact, numero: "XX-1" })).status, 422);
   assert.equal((await admin("PUT", "/api/data/factures", { ...fact, numero: "FA-0002", lignes: [{ designation: "x", quantite: -1, prixUnitaire: 5 }] })).status, 422);
+  // montant de ligne (quantité × prix) borné : pas de débordement de cumul
+  assert.equal((await admin("PUT", "/api/data/factures", { ...fact, numero: "FA-0003", lignes: [{ designation: "x", quantite: 1e12, prixUnitaire: 1e12 }] })).status, 422);
   // mise à jour de la même facture avec son propre numéro : autorisée
   assert.equal((await admin("PUT", "/api/data/factures", { ...fact, id: ok.data.id })).status, 200);
 });
@@ -97,6 +99,11 @@ test("droits par rôle", async () => {
   assert.equal((await mk("caisse", "Caissier(e)")).status, 200);
   assert.equal((await mk("Caisse", "Gérant")).status, 422); // identifiant déjà pris (casse ignorée)
   assert.equal((await mk("gerant", "Gérant")).status, 200);
+
+  // un compte forcé à changer son code provisoire peut quand même se déconnecter proprement
+  const caisseBis = client();
+  await caisseBis("POST", "/api/login", { login: "caisse", password: "Initial-2026" });
+  assert.equal((await caisseBis("POST", "/api/logout", {})).status, 200);
 
   const caisse = client();
   assert.equal((await caisse("POST", "/api/login", { login: "caisse", password: "Initial-2026" })).data.user.doitChangerMotDePasse, true);
@@ -108,10 +115,17 @@ test("droits par rôle", async () => {
   assert.equal((await caisse("PUT", "/api/data/societe", { raison: "Piratage" })).status, 403);
   assert.equal((await caisse("PUT", "/api/data/utilisateurs", { nom: "x", login: "x2", motDePasse: "Pirate-2026!", role: "Administrateur" })).status, 403);
   assert.equal((await caisse("DELETE", "/api/data/clients/1")).status, 403);
-  // écriture générée automatiquement (source) : remplaçable par un rôle non administrateur
-  const gen = await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0, source: "treso_caisse#1" });
+  // écriture générée par une pièce RÉELLE du Caissier (source) : autorisée et supprimable
+  const ticket = await caisse("PUT", "/api/data/treso_caisse", { date: "2026-01-10", type: "Encaissement", motif: "Vente comptant", contrepartie: "701", montant: 1000 });
+  assert.equal(ticket.status, 200, JSON.stringify(ticket.data));
+  const gen = await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0, source: "treso_caisse#" + ticket.data.id });
   assert.equal(gen.status, 200);
-  // écriture saisie à la main : interdite au Caissier (OWASP A01), suppression aussi
+  // source forgée (aucune pièce derrière, ou module interdit) : écriture refusée — un Caissier
+  // ne peut pas fabriquer d'écritures comptables arbitraires (OWASP A01, séparation des tâches)
+  assert.equal((await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "521", debit: 9999999, credit: 0, source: "treso_caisse#999999" })).status, 403);
+  assert.equal((await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "521", debit: 9999999, credit: 0, source: "planComptable#1" })).status, 403);
+  assert.equal((await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "521", debit: 9999999, credit: 0, source: "x" })).status, 403);
+  // écriture saisie à la main (sans source) : interdite au Caissier (OWASP A01), suppression aussi
   assert.equal((await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0 })).status, 403);
   const manuelle = await admin("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0 });
   assert.equal((await caisse("DELETE", "/api/data/journal/" + manuelle.data.id)).status, 403);

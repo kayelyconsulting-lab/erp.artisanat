@@ -40,6 +40,11 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
       const ck = s.headers.get("set-cookie").split(";")[0];
       const c = await fetch(${JSON.stringify(R)} + "/console/api/societes", { method: "POST", headers: { "Content-Type": "application/json", Cookie: ck }, body: JSON.stringify({ slug: "demo", nom: "Démo SARL" }) });
       if (!c.ok) process.exit(1);
+      // La console crée désormais l'administrateur de la société ; ce test part d'une base vierge.
+      const { DatabaseSync } = require("node:sqlite");
+      const db = new DatabaseSync(${JSON.stringify(path.join(data, "societes", "demo.sqlite"))});
+      for (const t of ["records", "sessions", "audit", "login_fails"]) db.exec("DELETE FROM " + t);
+      db.close();
     })();`], { stdio: "inherit" });
   assert.equal(prep.status, 0, "préparation");
   console.log("Préparation OK");
@@ -371,7 +376,21 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   await ev(() => openForm("factures")); await page.waitForTimeout(300);
   await ev(() => closeModal());
   assert.equal(await ev(() => window.__xss), undefined);
-  ok("aucun code injecté exécuté (liste et formulaire)");
+  // Impression d'une facture au nom de ce client : le nom piégé doit rester du simple texte.
+  const idPiege = await ev(async () => {
+    const c = (await getAll("clients")).find(x => /onerror/.test(x.nom || ""));
+    return putRecord("factures", { date: "2026-09-15", client: c.nom, tvaPct: 18, montantRegle: 0,
+      lignes: [{ designation: "Article libre", quantite: 1, prixUnitaire: 1000, montant: 1000 }], montantHT: 1000 });
+  });
+  const [popX] = await Promise.all([page.waitForEvent("popup"), ev(id => printFacture("factures", id), idPiege)]);
+  await popX.waitForLoadState();
+  const htmlX = await popX.content();
+  const imgPiege = await popX.evaluate(() => document.querySelectorAll("img[onerror]").length);
+  await popX.close();
+  assert.equal(imgPiege, 0, "le nom piégé n'a créé aucun élément exécutable à l'impression");
+  assert.match(htmlX, /&lt;img/, "le nom piégé est affiché comme texte échappé");
+  assert.equal(await ev(() => window.__xss), undefined);
+  ok("aucun code injecté exécuté (liste, formulaire et impression de facture)");
 
   console.log("Recherche : saisie continue");
   await ev(() => renderRoute("clients")); await page.waitForTimeout(200);

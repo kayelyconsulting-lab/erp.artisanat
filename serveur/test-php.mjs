@@ -39,6 +39,12 @@ try{
     const create = await fetch(root + "/console/api/societes", { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({ slug: "test", nom: "Société de test" }) });
     if (!create.ok) throw new Error("création société : " + await create.text());
+    // La console crée désormais l'administrateur de la société (fin de la « course au setup »).
+    // Les tests communs (server.test.mjs) partent d'une société vierge : on la remet à zéro.
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(${JSON.stringify(path.join(data, "societes", "test.sqlite"))});
+    for (const t of ["records", "sessions", "audit", "login_fails"]) db.exec("DELETE FROM " + t);
+    db.close();
   `], { stdio: "inherit" });
   if (prep.status !== 0) throw new Error("préparation des tests PHP impossible");
 

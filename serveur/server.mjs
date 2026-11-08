@@ -120,12 +120,26 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
   const SECTIONS_CONFIDENTIELLES = new Set(["rh", "paie"]);
   const ECRITURE_INTERDITE_CAISSIER = new Set(["planComptable", "immobilisations"]);
   const peutLire = (user, mod) => !(user.role === CAISSIER && SECTIONS_CONFIDENTIELLES.has(mod.section));
+  // Le Caissier ne peut écrire au journal que les écritures générées par ses PROPRES pièces.
+  // La « source » (« module#id ») doit donc désigner une pièce réelle, d'un module qu'il a le
+  // droit d'alimenter — sinon il pourrait forger des écritures comptables arbitraires.
+  function sourceCaissierValide(source){
+    if (typeof source !== "string" || !source) return false;
+    const [srcStore, idStr] = source.split("#");
+    const srcMod = schema.modules.get(srcStore);
+    if (!srcMod || srcMod.key === "journal") return false;
+    if (srcMod.adminOnly || srcMod.key === "utilisateurs" || srcMod.section === "parametres") return false;
+    if (SECTIONS_CONFIDENTIELLES.has(srcMod.section) || ECRITURE_INTERDITE_CAISSIER.has(srcMod.key)) return false;
+    const id = Number(idStr);
+    if (!Number.isInteger(id) || id <= 0) return false;
+    return !!db.get(srcMod.key, id);
+  }
   function assertCanWrite(user, mod, input){
     let ok = mod.key === "utilisateurs" || mod.adminOnly ? isAdmin(user)
       : mod.section === "parametres" ? isGerantOrAdmin(user) : true;
     if (ok && user.role === CAISSIER){
       if (SECTIONS_CONFIDENTIELLES.has(mod.section) || ECRITURE_INTERDITE_CAISSIER.has(mod.key)) ok = false;
-      if (mod.key === "journal" && !(input && typeof input.source === "string" && input.source)) ok = false;
+      if (mod.key === "journal" && !sourceCaissierValide(input && input.source)) ok = false;
     }
     if (!ok) throw new HttpError(403, "Action non autorisée pour votre rôle.");
   }

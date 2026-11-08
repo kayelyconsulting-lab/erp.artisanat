@@ -332,7 +332,8 @@ $("createForm").addEventListener("submit", async e => {
   e.preventDefault(); msg("createMsg", "");
   try{
     const s = await api("POST", "societes", { nom: $("newNom").value, slug: slugify($("newSlug").value) });
-    msg("createMsg", "Société créée. Adresse à transmettre : " + urlOf(s.slug) + " — à la première ouverture, la société crée son compte administrateur.", true);
+    msg("createMsg", "Société créée. À transmettre à la société : adresse " + urlOf(s.slug)
+      + " — identifiant « " + s.login + " » — code provisoire « " + s.codeProvisoire + " » (à changer à la première connexion).", true);
     $("newNom").value = ""; $("newSlug").value = ""; $("newUrl").textContent = "—"; slugTouched = false;
     await refresh(); await refreshLicences();
   }catch(e){ if (e.status === 401) return show("loginView"); msg("createMsg", e.message); }

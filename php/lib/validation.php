@@ -148,9 +148,14 @@ function kgp_validate_record(array $mod, $input, array $ctx): array {
         kgp_check_number('prixUnitaire', $pu, "Ligne $n — prix unitaire", $errors);
         if (!(kgp_is_number($q) && $q > 0)) $errors[] = "Ligne $n : la quantité doit être supérieure à 0";
         $q = kgp_is_number($q) ? $q : 0; $pu = kgp_is_number($pu) ? $pu : 0;
-        $out['lignes'][] = ['designation' => $designation, 'quantite' => $q, 'prixUnitaire' => $pu, 'montant' => $q * $pu];
+        $montant = $q * $pu;
+        kgp_check_number('montant', $montant, "Ligne $n — montant", $errors);
+        $out['lignes'][] = ['designation' => $designation, 'quantite' => $q, 'prixUnitaire' => $pu, 'montant' => $montant];
       }
-      if (!$errors) $out['montantHT'] = array_sum(array_column($out['lignes'], 'montant'));
+      if (!$errors){
+        $out['montantHT'] = array_sum(array_column($out['lignes'], 'montant'));
+        kgp_check_number('montantHT', $out['montantHT'], 'Montant HT total', $errors);
+      }
     }
   } else {
     foreach ($mod['fields'] as $f) if (!empty($f['readonly']) && ($f['t'] ?? '') === 'number'){

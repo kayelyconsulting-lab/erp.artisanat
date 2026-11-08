@@ -288,13 +288,27 @@ const KGP_ECRITURE_INTERDITE_CAISSIER = ['planComptable', 'immobilisations'];
 function kgp_peut_lire(array $user, array $mod): bool {
   return !(($user['role'] ?? '') === KGP_CAISSIER && in_array($mod['section'] ?? '', KGP_SECTIONS_CONFIDENTIELLES, true));
 }
+// Le Caissier ne peut écrire au journal que les écritures générées par ses PROPRES pièces.
+// La « source » (« module#id ») doit désigner une pièce réelle, d'un module qu'il a le droit
+// d'alimenter — sinon il pourrait forger des écritures comptables arbitraires.
+function kgp_source_caissier_valide($source): bool {
+  if (!is_string($source) || $source === '') return false;
+  $parts = explode('#', $source);
+  $srcMod = kgp_schema()['modules'][$parts[0]] ?? null;
+  if (!$srcMod || $srcMod['key'] === 'journal') return false;
+  if (!empty($srcMod['adminOnly']) || $srcMod['key'] === 'utilisateurs' || ($srcMod['section'] ?? '') === 'parametres') return false;
+  if (in_array($srcMod['section'] ?? '', KGP_SECTIONS_CONFIDENTIELLES, true) || in_array($srcMod['key'], KGP_ECRITURE_INTERDITE_CAISSIER, true)) return false;
+  $id = isset($parts[1]) && ctype_digit($parts[1]) ? (int)$parts[1] : 0;
+  if ($id <= 0) return false;
+  return kgp_get($srcMod['key'], $id) !== null;
+}
 function kgp_assert_can_write(array $user, array $mod, $input = null): void {
   if ($mod['key'] === 'utilisateurs' || !empty($mod['adminOnly'])) $ok = kgp_is_admin($user);
   elseif (($mod['section'] ?? '') === 'parametres') $ok = kgp_is_gerant_or_admin($user);
   else $ok = true;
   if ($ok && ($user['role'] ?? '') === KGP_CAISSIER){
     if (in_array($mod['section'] ?? '', KGP_SECTIONS_CONFIDENTIELLES, true) || in_array($mod['key'], KGP_ECRITURE_INTERDITE_CAISSIER, true)) $ok = false;
-    if ($mod['key'] === 'journal' && !(is_array($input) && is_string($input['source'] ?? null) && $input['source'] !== '')) $ok = false;
+    if ($mod['key'] === 'journal' && !kgp_source_caissier_valide(is_array($input) ? ($input['source'] ?? null) : null)) $ok = false;
   }
   if (!$ok) throw new HttpError(403, 'Action non autorisée pour votre rôle.');
 }
@@ -573,7 +587,7 @@ function kgp_handle_api(string $p): void {
     $session = kgp_current_session();
     if (!$session) throw new HttpError(401, 'Session expirée : reconnectez-vous.');
     $user = $session['user'];
-    if (!empty($user['doitChangerMotDePasse']) && !in_array($p, ['/api/password', '/api/me'], true)){
+    if (!empty($user['doitChangerMotDePasse']) && !in_array($p, ['/api/password', '/api/me', '/api/logout'], true)){
       throw new HttpError(403, "Changez d'abord votre code secret.");
     }
 

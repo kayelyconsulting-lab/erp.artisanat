@@ -21,6 +21,7 @@ function client(){
   };
 }
 const consoleClient = client();
+const prov = {};   // codes provisoires des administrateurs créés par la console
 async function consoleLogin(){
   const r = await consoleClient("POST", "/console/api/login", { password: process.env.KGP_CONSOLE_PASSWORD });
   assert.equal(r.status, 200);
@@ -39,17 +40,31 @@ test("création de sociétés : codes contrôlés", { skip }, async () => {
   for (const slug of ["Mauvais Code", "console", "-x", "a".repeat(41)]){
     assert.equal((await consoleClient("POST", "/console/api/societes", { slug, nom: "X" })).status, 422, slug);
   }
-  assert.equal((await consoleClient("POST", "/console/api/societes", { slug: "alpha", nom: "Alpha SARL" })).status, 200);
-  assert.equal((await consoleClient("POST", "/console/api/societes", { slug: "beta", nom: "Beta SA" })).status, 200);
+  const ra = await consoleClient("POST", "/console/api/societes", { slug: "alpha", nom: "Alpha SARL" });
+  const rb = await consoleClient("POST", "/console/api/societes", { slug: "beta", nom: "Beta SA" });
+  assert.equal(ra.status, 200);
+  assert.equal(rb.status, 200);
+  // La console crée l'administrateur de la société et renvoie un code provisoire.
+  assert.match(ra.data.login, /^admin$/);
+  assert.match(ra.data.codeProvisoire, /^Kgp-/);
+  prov.alpha = ra.data.codeProvisoire;
+  prov.beta = rb.data.codeProvisoire;
   assert.equal((await consoleClient("POST", "/console/api/societes", { slug: "alpha", nom: "Doublon" })).status, 422);
   assert.ok(fs.existsSync(path.join(DATA, "societes", "alpha.sqlite")));
   assert.ok(fs.existsSync(path.join(DATA, "societes", "beta.sqlite")));
+
+  // La société n'est plus « à prendre » : plus de setup public possible.
+  assert.equal((await client()("GET", "/alpha/api/status")).data.needsSetup, false);
+  assert.equal((await client()("POST", "/alpha/api/setup", { login: "pirate", password: "Pirate-Secret-2026" })).status, 409);
 });
 
 test("chaque société a sa propre base, sans interférence", { skip }, async () => {
   const a = client(), b = client();
-  assert.equal((await a("POST", "/alpha/api/setup", { login: "admin", password: "Alpha-Secret-2026" })).status, 200);
-  assert.equal((await b("POST", "/beta/api/setup", { login: "admin", password: "Beta-Secret-2026" })).status, 200);
+  // Première connexion avec le code provisoire de la console, puis choix du code définitif.
+  assert.equal((await a("POST", "/alpha/api/login", { login: "admin", password: prov.alpha })).data.user.doitChangerMotDePasse, true);
+  assert.equal((await a("POST", "/alpha/api/password", { password: "Alpha-Secret-2026" })).status, 200);
+  assert.equal((await b("POST", "/beta/api/login", { login: "admin", password: prov.beta })).data.user.doitChangerMotDePasse, true);
+  assert.equal((await b("POST", "/beta/api/password", { password: "Beta-Secret-2026" })).status, 200);
 
   assert.equal((await a("PUT", "/alpha/api/data/clients", { nom: "Client d'Alpha" })).status, 200);
   assert.equal((await b("PUT", "/beta/api/data/clients", { nom: "Client de Beta" })).status, 200);

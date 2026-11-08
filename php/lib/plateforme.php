@@ -157,6 +157,35 @@ function kgp_societe_infos(array $s): array {
   ];
 }
 
+/* Dote la société déjà ouverte (kgp_use_tenant appelé au préalable) d'un administrateur
+   protégé par un code provisoire. Si aucun administrateur n'existe encore, le compte est
+   créé : la société n'est donc jamais laissée « à prendre » par le premier visiteur qui
+   atteindrait son adresse via /api/setup. Si un administrateur existe, son code est
+   réinitialisé. Renvoie l'identifiant et le code provisoire à transmettre, hors ligne,
+   à la société (qui devra le changer à la première connexion). */
+function kgp_console_doter_admin(): array {
+  $admin = null;
+  foreach (kgp_all('utilisateurs') as $u) if (($u['role'] ?? '') === KGP_ADMIN){ $admin = $u; break; }
+  $temp = 'Kgp-' . substr(strtr(base64_encode(random_bytes(9)), '+/', 'xy'), 0, 10);
+  if ($admin){
+    $id = $admin['id'];
+    $record = $admin;
+  } else {
+    $id = 1;
+    $record = kgp_validate_record(kgp_module('utilisateurs'),
+      ['nom' => 'Administrateur', 'prenom' => 'Système', 'login' => 'admin', 'role' => KGP_ADMIN, 'statut' => 'Actif', 'dateExpiration' => ''],
+      ['lookup' => fn() => [], 'numeroTaken' => fn() => false]);
+  }
+  $record['motDePasseHash'] = kgp_hash_password($temp);
+  $record['doitChangerMotDePasse'] = true;
+  $record['statut'] = 'Actif';
+  $record['dateExpiration'] = '';
+  kgp_put('utilisateurs', $id, $record, null);
+  kgp_delete_other_sessions($id);
+  kgp_audit(null, $admin ? 'reset-console' : 'create-admin-console', 'utilisateurs', $id);
+  return ['login' => $record['login'] ?? 'admin', 'codeProvisoire' => $temp];
+}
+
 function kgp_handle_console_api(string $p, string $base): void {
   try {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -252,11 +281,14 @@ function kgp_handle_console_api(string $p, string $base): void {
         if (is_file(kgp_tenant_file($slug))) throw new ValidationError(["Une base « $slug » existe déjà sur le disque : choisissez un autre code."]);
         kgp_platform_db()->prepare('INSERT INTO societes (slug, nom, statut, cree_le) VALUES (?, ?, ?, ?)')->execute([$slug, $nom, 'Active', time()]);
       });
-      // Crée tout de suite la base vide et séparée de la société.
+      // Crée tout de suite la base séparée ET son administrateur à code provisoire : la
+      // société n'est jamais laissée sans compte, donc jamais « à prendre » par le premier
+      // visiteur qui atteindrait son adresse avant la société elle-même.
       kgp_use_tenant(['slug' => $slug, 'nom' => $nom], $base);
       kgp_db();
+      $acces = kgp_console_doter_admin();
       kgp_console_audit('create', $slug);
-      kgp_send(kgp_societe_infos(kgp_find_societe($slug)));
+      kgp_send(kgp_societe_infos(kgp_find_societe($slug)) + $acces);
       return;
     }
     if (preg_match('#^/api/societes/([a-z0-9-]+)/(statut|nom|reinitialiser)$#', $p, $m) && $method === 'POST'){
@@ -274,21 +306,12 @@ function kgp_handle_console_api(string $p, string $base): void {
         kgp_platform_db()->prepare('UPDATE societes SET nom = ? WHERE slug = ?')->execute([$nom, $s['slug']]);
         kgp_console_audit('nom', $s['slug']);
       } else {
-        // Administrateur de la société qui a perdu son code : code provisoire à changer à la connexion.
+        // Code administrateur perdu, ou (cas d'anciennes bases) société encore sans
+        // administrateur : (re)crée le compte avec un code provisoire à changer à la connexion.
         kgp_use_tenant($s, $base);
-        $admin = null;
-        foreach (kgp_all('utilisateurs') as $u) if (($u['role'] ?? '') === KGP_ADMIN){ $admin = $u; break; }
-        if (!$admin) throw new ValidationError(["Cette société n'a pas encore d'administrateur : il sera créé à la première ouverture de son adresse."]);
-        $temp = 'Kgp-' . substr(strtr(base64_encode(random_bytes(9)), '+/', 'xy'), 0, 10);
-        $admin['motDePasseHash'] = kgp_hash_password($temp);
-        $admin['doitChangerMotDePasse'] = true;
-        $admin['statut'] = 'Actif';
-        $admin['dateExpiration'] = '';
-        kgp_put('utilisateurs', $admin['id'], $admin, null);
-        kgp_delete_other_sessions($admin['id']);
-        kgp_audit(null, 'reset-console', 'utilisateurs', $admin['id']);
+        $acces = kgp_console_doter_admin();
         kgp_console_audit('reset', $s['slug']);
-        kgp_send(['login' => $admin['login'], 'codeProvisoire' => $temp]);
+        kgp_send($acces);
         return;
       }
       kgp_send(kgp_societe_infos(kgp_find_societe($s['slug'])));

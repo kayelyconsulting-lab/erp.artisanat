@@ -149,9 +149,14 @@ export function validateRecord(mod, input, ctx){
         checkNumber("prixUnitaire", l.prixUnitaire, `Ligne ${n} — prix unitaire`, errors);
         if (!(l.quantite > 0)) errors.push(`Ligne ${n} : la quantité doit être supérieure à 0`);
         const quantite = Number(l.quantite) || 0, prixUnitaire = Number(l.prixUnitaire) || 0;
-        return { designation, quantite, prixUnitaire, montant: quantite * prixUnitaire };
+        const montant = quantite * prixUnitaire;
+        checkNumber("montant", montant, `Ligne ${n} — montant`, errors);
+        return { designation, quantite, prixUnitaire, montant };
       });
-      if (!errors.length) out.montantHT = out.lignes.reduce((s, l) => s + l.montant, 0);
+      if (!errors.length){
+        out.montantHT = out.lignes.reduce((s, l) => s + l.montant, 0);
+        checkNumber("montantHT", out.montantHT, "Montant HT total", errors);
+      }
     }
   } else {
     for (const f of mod.fields) if (f.readonly && f.t === "number"){
