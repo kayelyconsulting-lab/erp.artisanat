@@ -108,6 +108,12 @@ test("droits par rôle", async () => {
   assert.equal((await caisse("PUT", "/api/data/societe", { raison: "Piratage" })).status, 403);
   assert.equal((await caisse("PUT", "/api/data/utilisateurs", { nom: "x", login: "x2", motDePasse: "Pirate-2026!", role: "Administrateur" })).status, 403);
   assert.equal((await caisse("DELETE", "/api/data/clients/1")).status, 403);
+  // écriture générée automatiquement (source) : remplaçable par un rôle non administrateur
+  const gen = await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0, source: "treso_caisse#1" });
+  assert.equal(gen.status, 200);
+  const manuelle = await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0 });
+  assert.equal((await caisse("DELETE", "/api/data/journal/" + manuelle.data.id)).status, 403);
+  assert.equal((await caisse("DELETE", "/api/data/journal/" + gen.data.id)).status, 200);
   const users = (await caisse("GET", "/api/data/utilisateurs")).data;
   assert.deepEqual(users.map(u => u.login), ["caisse"]);
 

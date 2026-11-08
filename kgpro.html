@@ -487,7 +487,8 @@ const SECTIONS = [
           {k:"montantHT",l:"Montant HT (calculé sur les lignes)",t:"number",readonly:1},
           {k:"tvaPct",l:"TVA (%)",t:"number",def:18},
           {k:"timbreQuittance",l:"Timbre de quittance (FCFA)",t:"number",def:0},
-          {k:"montantRegle",l:"Montant réglé (payé)",t:"number",def:0} ],
+          {k:"montantRegle",l:"Montant réglé (payé)",t:"number",def:0},
+          {k:"modeReglement",l:"Réglé par (compte de trésorerie)",t:"select",opts:["Caisse","Banque"],def:"Caisse"} ],
         cols:["numero","date","fournisseur","montantHT","montantTTC","solde","statut"], special:"facturesAchat" },
   ]},
   { id:"stocks", num:"05", label:"Stocks", icon:"📦", modules:[
@@ -548,7 +549,8 @@ const SECTIONS = [
           {k:"montantHT",l:"Montant HT (calculé sur les lignes)",t:"number",readonly:1},
           {k:"tvaPct",l:"TVA (%)",t:"number",def:18},
           {k:"timbreQuittance",l:"Timbre de quittance (FCFA)",t:"number",def:0},
-          {k:"montantRegle",l:"Montant réglé (encaissé)",t:"number",def:0} ],
+          {k:"montantRegle",l:"Montant réglé (encaissé)",t:"number",def:0},
+          {k:"modeReglement",l:"Encaissé par (compte de trésorerie)",t:"select",opts:["Caisse","Banque"],def:"Caisse"} ],
         cols:["numero","date","client","montantHT","montantTTC","solde","statut"], special:"factures" },
       { key:"avoirs", label:"Avoirs", fields:[
           {k:"date",l:"Date",t:"date",req:1},
@@ -604,7 +606,7 @@ const SECTIONS = [
         cols:["numero","designation","categorie","dateAcquisition","valeurOrigineHT","dureeAns","vnc","statut"] },
       { key:"journal", label:"Journal", fields:[
           {k:"date",l:"Date",t:"date",req:1},
-          {k:"journalType",l:"Journal",t:"select",opts:["AC-Achats","VE-Ventes","BQ-Banque","CA-Caisse","OD-Opérations diverses"]},
+          {k:"journalType",l:"Journal",t:"select",opts:["AC-Achats","VE-Ventes","BQ-Banque","CA-Caisse","OD-Opérations diverses","OD-Paie","OD-Amort","IM-Immobilisations"]},
           {k:"piece",l:"N° pièce",t:"text"},{k:"compte",l:"N° compte",t:"text",req:1},
           {k:"libelle",l:"Libellé",t:"text"},{k:"debit",l:"Débit",t:"number",def:0},
           {k:"credit",l:"Crédit",t:"number",def:0} ],
@@ -659,8 +661,8 @@ const SECTIONS = [
           {k:"cmuPartSalariePct",l:"CMU — part du salarié (%), le solde étant à la charge de l'employeur",t:"number",def:50},
           {k:"joursCongesParMois",l:"Jours de congés acquis par mois (CDI/CDD, jours ouvrables) — cumulés d'un mois à l'autre sur le bulletin",t:"number",def:2.2} ] },
       { key:"baremeIts", label:"Barème ITS (impôt sur salaires)", fields:[
-          {k:"trancheMin",l:"Tranche annuelle - de (FCFA)",t:"number",req:1},
-          {k:"trancheMax",l:"Tranche annuelle - à (FCFA, 0 = illimité)",t:"number",req:1},
+          {k:"trancheMin",l:"Tranche mensuelle - de (FCFA)",t:"number",req:1},
+          {k:"trancheMax",l:"Tranche mensuelle - à (FCFA, 0 = illimité)",t:"number",req:1},
           {k:"taux",l:"Taux (%)",t:"number",req:1} ], cols:["trancheMin","trancheMax","taux"] },
       { key:"paieCalcul", label:"Bulletins de paie", fields:[
           {k:"employe",l:"Employé",t:"dynselect",source:"rhEmployes",labelField:"nom",req:1,autofill:"salaireCategoriel:salaireBase,situationFamiliale:situationFamiliale,nombreEnfants:nombreEnfants,typeContrat:contrat"},
@@ -1247,13 +1249,20 @@ async function getAllArticleStocks(){
   return map;
 }
 
+/* Montants d'une facture (vente ou achat) : HT, TVA, timbre, TTC, réglé, reste dû. */
+function montantsFacture(f){
+  const ht = Number(f.montantHT)||0, tva = ht*(Number(f.tvaPct)||0)/100, timbre = Number(f.timbreQuittance)||0;
+  const ttc = ht + tva + timbre, regle = Number(f.montantRegle)||0;
+  return { ht, tva, timbre, ttc, regle, solde: ttc - regle };
+}
+
+/* Solde client = factures TTC (timbre compris) - montants réglés - avoirs TTC. */
 async function getAllClientSoldes(){
   const [factures, avoirs] = await Promise.all([getAllSafe("factures"), getAllSafe("avoirs")]);
   const map = {};
   factures.forEach(f=>{
     if(!f.client) return;
-    const ht=Number(f.montantHT)||0, ttc = ht + ht*(Number(f.tvaPct)||0)/100;
-    map[f.client] = (map[f.client]||0) + ttc - (Number(f.montantRegle)||0);
+    map[f.client] = (map[f.client]||0) + montantsFacture(f).solde;
   });
   avoirs.forEach(a=>{
     if(!a.client) return;
@@ -1264,11 +1273,18 @@ async function getAllClientSoldes(){
 }
 async function getClientSolde(nom){ const m = await getAllClientSoldes(); return m[nom]||0; }
 
+/* Solde fournisseur = factures d'achat (TTC - réglé) + entrées de stock saisies directement
+   (achats sans facture) - décaissements de caisse au nom du fournisseur. Les entrées créées
+   automatiquement par une facture d'achat ne sont pas recomptées. */
 async function getAllFournisseurSoldes(){
-  const entrees = await getAllSafe("stockEntrees");
+  const [entrees, facturesAchat] = await Promise.all([getAllSafe("stockEntrees"), getAllSafe("facturesAchat")]);
   const map = {};
+  facturesAchat.forEach(f=>{
+    if(!f.fournisseur) return;
+    map[f.fournisseur] = (map[f.fournisseur]||0) + montantsFacture(f).solde;
+  });
   entrees.forEach(e=>{
-    if(!e.fournisseur) return;
+    if(!e.fournisseur || e.auto) return;
     const ht = (Number(e.quantite)||0)*(Number(e.prixUnitaire)||0);
     const ttc = ht + ht*(Number(e.tvaPct)||0)/100;
     map[e.fournisseur] = (map[e.fournisseur]||0) + ttc;
@@ -1282,6 +1298,25 @@ async function getAllFournisseurSoldes(){
   return map;
 }
 async function getFournisseurSolde(nom){ const m = await getAllFournisseurSoldes(); return m[nom]||0; }
+
+/* Trésorerie = soldes initiaux des caisses et banques + mouvements des comptes de trésorerie
+   (classe 5) du Journal : tickets de caisse, règlements de factures, achats payés comptant... */
+async function computeTresorerie(){
+  const [journal, caisses, banques] = await Promise.all([getAllSafe("journal"), getAllSafe("caisses"), getAllSafe("banques")]);
+  const comptes = { Caisse:0, Banques:0, "Autres comptes de trésorerie":0 };
+  caisses.forEach(c => { comptes.Caisse += Number(c.soldeInit)||0; });
+  banques.forEach(b => { comptes.Banques += Number(b.soldeInit)||0; });
+  journal.forEach(e => {
+    const c = String(e.compte||"").trim();
+    if (c.charAt(0) !== "5") return;
+    const mvt = (Number(e.debit)||0) - (Number(e.credit)||0);
+    if (c.startsWith("57")) comptes.Caisse += mvt;
+    else if (c.startsWith("52")) comptes.Banques += mvt;
+    else comptes["Autres comptes de trésorerie"] += mvt;
+  });
+  const parCompte = Object.entries(comptes).map(([label, value]) => ({ label, value }));
+  return { total: parCompte.reduce((s, c) => s + c.value, 0), parCompte };
+}
 
 /* ---------------------------------------------------------
    2) INDEXEDDB
@@ -1541,19 +1576,16 @@ async function renderAccueil(){
   const articles = await getAllSafe("articles");
   const stocks = await getAllArticleStocks();
 
-  const ca = factures.reduce((s,f)=> s + (Number(f.montantHT)||0), 0);
-  const encaisse = factures.reduce((s,f)=> s + (Number(f.montantRegle)||0), 0);
-  const stockValeur = articles.reduce((s,a)=> s + (Number(a.prixVente)||0) * (stocks[a.designation]||0), 0);
+  const avoirs = await getAllSafe("avoirs");
+  // CA net = factures HT - avoirs HT ; stock valorisé au prix d'achat (prix de vente à défaut).
+  const ca = factures.reduce((s,f)=> s + (Number(f.montantHT)||0), 0) - avoirs.reduce((s,a)=> s + (Number(a.montantHT)||0), 0);
+  const prixStock = a => Number(a.prixAchat) > 0 ? Number(a.prixAchat) : (Number(a.prixVente)||0);
+  const stockValeur = articles.reduce((s,a)=> s + prixStock(a) * Math.max(0, stocks[a.designation]||0), 0);
   const alertes = articles.filter(a => (stocks[a.designation]||0) < Number(a.stockMini||0)).length;
 
-  let tresoTotal = 0;
-  const tresoParCompte = [];
-  for (const key of TRESO_KEYS){
-    const rows = await getAllSafe(key);
-    const solde = rows.reduce((s,r)=> s + (r.type==="Encaissement" ? Number(r.montant)||0 : -(Number(r.montant)||0)), 0);
-    tresoTotal += solde;
-    tresoParCompte.push({ label: TRESO_LABELS[key] || key, value: solde });
-  }
+  const tresorerie = await computeTresorerie();
+  const tresoTotal = tresorerie.total;
+  const tresoParCompte = tresorerie.parCompte;
 
   // -- Agregat CA / Encaisse sur les 6 derniers mois --
   const moisChart = buildLastMonths(6);
@@ -1566,19 +1598,22 @@ async function renderAccueil(){
       parMois[mk].encaisse += Number(f.montantRegle)||0;
     }
   });
+  avoirs.forEach(a => {
+    const mk = (a.date||"").slice(0,7);
+    if (parMois[mk]) parMois[mk].ca -= Number(a.montantHT)||0;
+  });
   const caSeries = moisChart.map(m => ({ label:m.label, a:parMois[m.key].ca, b:parMois[m.key].encaisse }));
 
   // -- Statut des factures --
   let solde=0, partielle=0, nonReglee=0, nbSoldee=0, nbPartielle=0, nbNonReglee=0;
   factures.forEach(f=>{
-    const ht=Number(f.montantHT)||0, tva=Number(f.tvaPct)||0, regle=Number(f.montantRegle)||0;
-    const ttc = ht+ht*tva/100, s = ttc-regle;
+    const { ttc, regle, solde: s } = montantsFacture(f);
     if (s<=0){ solde+=ttc; nbSoldee++; } else if (regle>0){ partielle+=ttc; nbPartielle++; } else { nonReglee+=ttc; nbNonReglee++; }
   });
 
   // -- Top 5 valeur de stock par article --
   const stockParArticle = articles
-    .map(a => ({ label:a.designation||"—", value:(Number(a.prixVente)||0)*(stocks[a.designation]||0) }))
+    .map(a => ({ label:a.designation||"—", value:prixStock(a)*(stocks[a.designation]||0) }))
     .filter(a => a.value>0)
     .sort((x,y)=>y.value-x.value)
     .slice(0,5);
@@ -1611,15 +1646,15 @@ async function renderAccueil(){
     ${notifBanner}
 
     <div class="grid cols-4">
-      ${kpiCard("Chiffre d'affaires facturé", fmt(ca), `${factures.length} facture(s)`)}
-      ${kpiCard("Trésorerie globale", fmt(tresoTotal), "Caisse + banques")}
-      ${kpiCard("Valeur du stock", fmt(stockValeur), `${alertes} alerte(s) stock`)}
+      ${kpiCard("Chiffre d'affaires net (HT)", fmt(ca), `${factures.length} facture(s), ${avoirs.length} avoir(s)`)}
+      ${kpiCard("Trésorerie globale", fmt(tresoTotal), "Caisses + banques (soldes initiaux + mouvements)")}
+      ${kpiCard("Valeur du stock", fmt(stockValeur), `Au prix d'achat — ${alertes} alerte(s) stock`)}
       ${kpiCard("Effectif RH", employes.length, `${clients.length} client(s) enregistrés`)}
     </div>
 
     <div class="grid cols-2" style="margin-top:18px;">
       <div class="chart-card">
-        <h3>CA facturé vs Encaissé</h3>
+        <h3>CA net facturé vs Encaissé</h3>
         <div class="chart-sub">6 derniers mois</div>
         <div id="chart-camois"></div>
       </div>
@@ -1706,6 +1741,21 @@ function fmtCompact(n){
 }
 function escXml(s){
   return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+/* Échappement HTML (texte et attributs) : toute donnée saisie est affichée telle quelle,
+   jamais interprétée comme du code. */
+function esc(s){
+  return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+/* Échappe en place les textes d'un objet (et de ses tableaux d'objets, ex. lignes) avant impression. */
+function escInPlace(obj){
+  if (!obj || typeof obj !== "object") return obj;
+  for (const k of Object.keys(obj)){
+    const v = obj[k];
+    if (typeof v === "string") obj[k] = esc(v);
+    else if (Array.isArray(v)) v.forEach(x => { if (x && typeof x === "object") escInPlace(x); });
+  }
+  return obj;
 }
 
 /* ---------------------------------------------------------
@@ -1899,7 +1949,7 @@ async function renderModuleList(mod){
     <h1 class="page-title">${mod.label}</h1>
     <div class="page-sub">${rows.length} enregistrement(s)${mod.special==="treso" ? " — compte OHADA "+mod.compte : ""}</div>
     <div class="toolbar">
-      <input class="search-box" placeholder="Rechercher..." value="${searchTerm}" oninput="onSearch('${mod.key}', this.value)">
+      <input class="search-box" placeholder="Rechercher..." value="${esc(searchTerm)}" oninput="onSearch('${mod.key}', this.value)">
       <button class="btn small ghost" onclick="exportModuleExcel('${mod.key}')">⬇️ Exporter Excel</button>
       <button class="btn small ghost" onclick="triggerExcelImport('${mod.key}')">⬆️ Importer Excel</button>
       <button class="btn gold" onclick="openForm('${mod.key}')">+ Nouveau</button>
@@ -1907,14 +1957,14 @@ async function renderModuleList(mod){
     <div class="table-wrap">
       ${rows.length===0 ? `<div class="empty"><div class="big">📄</div>Aucun enregistrement. Cliquez sur « + Nouveau » pour commencer.</div>` : `
       <table>
-        <thead><tr>${colLabels.map(c=>`<th>${c}</th>`).join("")}<th style="width:190px;">Actions</th></tr></thead>
+        <thead><tr>${colLabels.map(c=>`<th>${esc(c)}</th>`).join("")}<th style="width:190px;">Actions</th></tr></thead>
         <tbody>
           ${rows.map(r => `<tr>
             ${cols.map(c => `<td>${renderCell(mod, c, r[c])}</td>`).join("")}
             <td>
               <button class="btn small ghost" onclick="openForm('${mod.key}', ${r.id})">Modifier</button>
               ${mod.canGenerateFacture ? (r.factureNumero
-                  ? `<span class="badge ok">Facturé ${r.factureNumero}</span>`
+                  ? `<span class="badge ok">Facturé ${esc(r.factureNumero)}</span>`
                   : (r.statut==="Accepté" ? `<button class="btn small gold" onclick="genererFactureDepuis('${mod.key}', ${r.id})">Facturer</button>` : "")) : ""}
               ${mod.special==="treso" ? `<button class="btn small ghost" onclick="printTicket('${mod.key}', ${r.id})">Imprimer</button>` : ""}
               ${mod.special==="paie" ? `<button class="btn small ghost" onclick="printBulletin(${r.id})">Bulletin</button>` : ""}
@@ -1940,12 +1990,12 @@ const COL_LABELS = {
 };
 function renderCell(mod, col, val){
   if (col === "statut" && val){
-    const cls = /solde|actif|approuv|livr|encaiss/i.test(val) ? "ok" : /refus|annul|non r/i.test(val) ? "danger" : "warn";
-    return `<span class="badge ${cls}">${val}</span>`;
+    const cls = /solde|actif|approuv|livr|encaiss|service/i.test(val) ? "ok" : /refus|annul|non r|réform|cédé/i.test(val) ? "danger" : "warn";
+    return `<span class="badge ${cls}">${esc(val)}</span>`;
   }
   if (col === "type" && val){
     const cls = val === "Encaissement" ? "ok" : "danger";
-    return `<span class="badge ${cls}">${val}</span>`;
+    return `<span class="badge ${cls}">${esc(val)}</span>`;
   }
   const NON_CURRENCY_NUMBER_COLS = new Set([
     "quantite","taux","trancheMin","trancheMax","tvaPct","tva",
@@ -1961,9 +2011,16 @@ function renderCell(mod, col, val){
   if (typeof val === "number"){
     return fmt(val);
   }
-  return val ?? "";
+  return esc(val ?? "");
 }
-function onSearch(key, val){ searchTerm = val; renderModuleList(MODULE_INDEX[key].mod); }
+/* Recherche : la liste est redessinée, puis le curseur est remis dans le champ (sinon
+   la saisie s'interrompait à chaque caractère). */
+async function onSearch(key, val){
+  searchTerm = val;
+  await renderModuleList(MODULE_INDEX[key].mod);
+  const box = document.querySelector("#content .search-box");
+  if (box){ box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+}
 
 /* ---------------------------------------------------------
    EXPORT / IMPORT EXCEL (SheetJS)
@@ -2023,7 +2080,7 @@ async function handleExcelImport(event){
     const labelToKey = {};
     (mod.fields||[]).forEach(f => { labelToKey[f.l] = f.k; labelToKey[f.k] = f.k; });
 
-    let imported = 0, skipped = 0;
+    let imported = 0, skipped = 0, rejected = 0, firstError = "";
     for (const row of jsonRows){
       const record = {};
       let hasAnyValue = false;
@@ -2046,10 +2103,11 @@ async function handleExcelImport(event){
       if (NUMERO_PREFIXES[storeKey] && !record.numero){
         record.numero = await generateNumero(storeKey);
       }
-      await putRecord(storeKey, record);
-      imported++;
+      try{ await putRecord(storeKey, record); imported++; }
+      catch(err){ rejected++; if (!firstError) firstError = err.message || String(err); }
     }
-    toast(`${imported} fiche(s) importée(s)` + (skipped>0 ? `, ${skipped} ligne(s) ignorée(s) (champs obligatoires manquants)` : ""));
+    toast(`${imported} fiche(s) importée(s)` + (skipped>0 ? `, ${skipped} ligne(s) ignorée(s) (champs obligatoires manquants)` : "")
+      + (rejected>0 ? `, ${rejected} ligne(s) refusée(s) : ${firstError}` : ""));
     renderModuleList(mod);
   }catch(e){
     toast("Erreur de lecture du fichier Excel — vérifiez le format");
@@ -2058,11 +2116,19 @@ async function handleExcelImport(event){
 
 async function removeRecord(storeKey, id){
   if (!isAdmin()){ toast("Action réservée à l'administrateur"); return; }
-  if (!confirm("Supprimer cet enregistrement ?")) return;
+  const existing = (await getAll(storeKey)).find(r=>r.id===id);
+  if (!existing){ toast("Enregistrement introuvable"); return; }
+  const lie = anciennesPieces(storeKey, existing) ? " Les écritures comptables générées par cette pièce seront aussi supprimées." : "";
+  if (!confirm("Supprimer cet enregistrement ?" + lie)) return;
+  // Retire tout ce que la pièce a généré : écritures, mouvements de stock, lien devis -> facture.
+  await supprimerEcritures(storeKey, existing, true);
   if (storeKey === "factures"){
-    const existing = (await getAll(storeKey)).find(r=>r.id===id);
-    if (existing) await removeStockSortiesForFacture(existing.numero);
+    await removeStockSortiesForFacture(existing.numero);
+    for (const d of (await getAllSafe("devis")).filter(d => d.factureNumero && d.factureNumero === existing.numero)){
+      delete d.factureNumero; await putRecord("devis", d);
+    }
   }
+  if (storeKey === "facturesAchat") await removeStockEntreesForFactureAchat(existing.numero);
   await deleteRecord(storeKey, id);
   toast("Enregistrement supprimé");
   renderModuleList(MODULE_INDEX[storeKey].mod);
@@ -2086,16 +2152,18 @@ async function openForm(storeKey, id){
       fieldsHtmlParts.push(`<div class="field"><label>${f.l}${f.req?" *":""}</label>
         <select id="f_${f.k}"${extraOnchange}>
           <option value=""></option>
-          ${f.opts.map(o=>`<option value="${o}" ${o===val?"selected":""}>${o}</option>`).join("")}
+          ${f.opts.map(o=>`<option value="${esc(o)}" ${o===val?"selected":""}>${esc(o)}</option>`).join("")}
         </select></div>`);
     } else if (f.t === "dynselect"){
       const options = await getAllSafe(f.source);
       const opts = options.map(o => o[f.labelField]).filter(Boolean);
+      // valeur enregistrée qui n'existe plus dans la liste (fiche renommée) : on la garde sélectionnable
+      if (val && !opts.includes(val)) opts.unshift(val);
       const changeAttr = f.autofill ? ` onchange="applyAutofill('${storeKey}','${f.k}','${f.autofill}',this.value)"` : "";
       fieldsHtmlParts.push(`<div class="field"><label>${f.l}${f.req?" *":""}</label>
         <select id="f_${f.k}"${changeAttr}>
           <option value=""></option>
-          ${opts.map(o=>`<option value="${o}" ${o===val?"selected":""}>${o}</option>`).join("")}
+          ${opts.map(o=>`<option value="${esc(o)}" ${o===val?"selected":""}>${esc(o)}</option>`).join("")}
         </select></div>`);
     } else if (f.t === "image"){
       const hasImg = !!val;
@@ -2108,7 +2176,7 @@ async function openForm(storeKey, id){
       const ocrSummary = f.ocr ? `<div id="ocrSummary_${f.k}" style="display:none; margin-top:8px; padding:8px 10px; background:#F4F6FA; border:1px solid #E3E7F1; border-radius:6px; font-size:11px; color:#182338; line-height:1.6;"></div>` : "";
       fieldsHtmlParts.push(`<div class="field"><label>${f.l}${f.req?" *":""}</label>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <img id="img_${f.k}" src="${val||""}" style="max-width:130px; max-height:70px; object-fit:contain; border:1px solid #E3E7F1; border-radius:6px; background:#fff; ${hasImg?"":"display:none;"}">
+          <img id="img_${f.k}" src="${esc(val||"")}" style="max-width:130px; max-height:70px; object-fit:contain; border:1px solid #E3E7F1; border-radius:6px; background:#fff; ${hasImg?"":"display:none;"}">
           <input type="file" id="f_${f.k}" accept="image/*"${captureAttr} onchange="handleImageFieldChange(event,'${f.k}')">
           ${ocrBtn}
           <button type="button" id="imgremove_${f.k}" class="btn small ghost" style="${hasImg?"":"display:none;"}" onclick="removeImageField('${f.k}')">${removeLabel}</button>
@@ -2119,7 +2187,7 @@ async function openForm(storeKey, id){
     } else {
       const roAttr = f.readonly ? ` readonly style="background:#F4F6FA; color:#5B6479;"` : "";
       fieldsHtmlParts.push(`<div class="field"><label>${f.l}${f.req?" *":""}</label>
-        <input id="f_${f.k}" type="${f.t}" value="${val}"${roAttr}></div>`);
+        <input id="f_${f.k}" type="${f.t}" value="${esc(val)}"${roAttr}></div>`);
     }
   }
   const fieldsHtml = fieldsHtmlParts.join("");
@@ -2185,7 +2253,8 @@ function readAndResizeImage(file, maxDim){
         const ctx = canvas.getContext("2d");
         ctx.clearRect(0,0,w,h);
         ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/png"));
+        // Scans (grande taille) en JPEG : 5 à 10 fois plus léger qu'en PNG. Logos en PNG (transparence).
+        resolve(maxDim > 600 ? canvas.toDataURL("image/jpeg", 0.85) : canvas.toDataURL("image/png"));
       };
       img.onerror = reject;
       img.src = e.target.result;
@@ -2402,10 +2471,16 @@ async function applyOcrExtraction(storeKey, fieldKey, text){
   }
 }
 
+function ligneEstLibre(l){
+  return !!l.libre || (!!l.designation && !currentLigneCatalogue.some(c=>c.designation===l.designation));
+}
+function totalLignes(){
+  return currentLignes.reduce((s,l)=> s + (Number(l.quantite)||0)*(Number(l.prixUnitaire)||0), 0);
+}
 function renderLignesEditor(storeKey){
   const el = document.getElementById("lignesEditor");
   if (!el) return;
-  const total = currentLignes.reduce((s,l)=> s + (Number(l.quantite)||0)*(Number(l.prixUnitaire)||0), 0);
+  const total = totalLignes();
   el.innerHTML = `
     <table style="width:100%; border-collapse:collapse; margin-top:6px;">
       <thead><tr>
@@ -2418,20 +2493,20 @@ function renderLignesEditor(storeKey){
       <tbody>
         ${currentLignes.map((l,i)=>`<tr>
           <td style="padding:3px;">
-            <select onchange="updateLigneField(${i},'designation',this.value,'${storeKey}')" style="width:100%;">
+            <select onchange="choisirLigneDesignation(${i},this.value,'${storeKey}')" style="width:100%;">
               <option value="">— Choisir un article/service —</option>
-              ${currentLigneCatalogue.map(c=>`<option value="${c.designation}" ${c.designation===l.designation?"selected":""}>${c.designation}</option>`).join("")}
-              <option value="__autre__" ${l.designation && !currentLigneCatalogue.some(c=>c.designation===l.designation) ? "selected" : ""}>Autre (saisie libre)…</option>
+              ${currentLigneCatalogue.map(c=>`<option value="${esc(c.designation)}" ${!ligneEstLibre(l) && c.designation===l.designation?"selected":""}>${esc(c.designation)}</option>`).join("")}
+              <option value="__autre__" ${ligneEstLibre(l) ? "selected" : ""}>Autre (saisie libre)…</option>
             </select>
-            ${(l.designation && !currentLigneCatalogue.some(c=>c.designation===l.designation)) ? `
-              <input type="text" value="${l.designation||""}" placeholder="Désignation libre"
-                oninput="updateLigneField(${i},'designation',this.value,'${storeKey}')" style="width:100%; margin-top:4px;">` : ""}
+            ${ligneEstLibre(l) ? `
+              <input type="text" value="${esc(l.designation||"")}" placeholder="Désignation libre"
+                oninput="updateLigneField(${i},'designation',this.value)" style="width:100%; margin-top:4px;">` : ""}
           </td>
-          <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${l.quantite ?? 1}"
-              oninput="updateLigneField(${i},'quantite',this.value,'${storeKey}')" style="width:100%; text-align:right;"></td>
-          <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${l.prixUnitaire ?? 0}"
-              oninput="updateLigneField(${i},'prixUnitaire',this.value,'${storeKey}')" style="width:100%; text-align:right;"></td>
-          <td style="padding:3px; text-align:right; font-weight:700;">${fmt((Number(l.quantite)||0)*(Number(l.prixUnitaire)||0))}</td>
+          <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${esc(l.quantite ?? 1)}"
+              oninput="updateLigneField(${i},'quantite',this.value)" style="width:100%; text-align:right;"></td>
+          <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${esc(l.prixUnitaire ?? 0)}"
+              oninput="updateLigneField(${i},'prixUnitaire',this.value)" style="width:100%; text-align:right;"></td>
+          <td style="padding:3px; text-align:right; font-weight:700;" id="ligneMontant_${i}">${fmt((Number(l.quantite)||0)*(Number(l.prixUnitaire)||0))}</td>
           <td style="padding:3px; text-align:center;">
             <button type="button" onclick="removeLigneRow(${i},'${storeKey}')" style="background:none; border:none; color:#B3261E; cursor:pointer; font-size:14px;" title="Supprimer la ligne">✕</button>
           </td>
@@ -2439,7 +2514,7 @@ function renderLignesEditor(storeKey){
       </tbody>
       <tfoot>
         <tr><td colspan="3" style="text-align:right; padding:6px 4px; font-weight:700; color:#1F3864;">Total HT (lignes)</td>
-          <td style="text-align:right; padding:6px 4px; font-weight:800; color:#1F3864;">${fmt(total)}</td><td></td></tr>
+          <td style="text-align:right; padding:6px 4px; font-weight:800; color:#1F3864;" id="lignesTotal">${fmt(total)}</td><td></td></tr>
       </tfoot>
     </table>
     <button type="button" class="btn small ghost" style="margin-top:6px;" onclick="addLigneRow('${storeKey}')">+ Ajouter une ligne</button>
@@ -2456,9 +2531,30 @@ function removeLigneRow(idx, storeKey){
   if (currentLignes.length===0) currentLignes.push({designation:"", quantite:1, prixUnitaire:0});
   renderLignesEditor(storeKey);
 }
-function updateLigneField(idx, field, val, storeKey){
-  currentLignes[idx][field] = (field==="quantite"||field==="prixUnitaire") ? Number(val)||0 : val;
+/* Choix dans la liste : article/service du catalogue (prix repris automatiquement)
+   ou « Autre » (champ de saisie libre). */
+function choisirLigneDesignation(idx, val, storeKey){
+  const l = currentLignes[idx];
+  if (val === "__autre__"){ l.libre = true; l.designation = ""; }
+  else {
+    l.libre = false; l.designation = val;
+    const c = currentLigneCatalogue.find(c => c.designation === val);
+    if (c && c.prix > 0) l.prixUnitaire = c.prix;
+  }
   renderLignesEditor(storeKey);
+}
+/* Saisie dans une case : on met à jour la ligne et les totaux sans redessiner le tableau
+   (le curseur reste dans le champ). */
+function updateLigneField(idx, field, val){
+  currentLignes[idx][field] = (field==="quantite"||field==="prixUnitaire") ? Number(val)||0 : val;
+  const l = currentLignes[idx];
+  const cell = document.getElementById("ligneMontant_"+idx);
+  if (cell) cell.textContent = fmt((Number(l.quantite)||0)*(Number(l.prixUnitaire)||0));
+  const total = totalLignes();
+  const tot = document.getElementById("lignesTotal");
+  if (tot) tot.textContent = fmt(total);
+  const montantEl = document.getElementById("f_montantHT");
+  if (montantEl) montantEl.value = total;
 }
 
 /* Pré-remplit un champ du formulaire depuis la fiche liée (ex: salaire de base depuis l'employé sélectionné) */
@@ -2482,7 +2578,15 @@ function closeModal(){ document.getElementById("overlay").classList.remove("show
 
 async function saveForm(storeKey, id){
   const mod = MODULE_INDEX[storeKey].mod;
-  const record = id ? { id } : {};
+  const existing = id ? (await getAll(storeKey)).find(r=>r.id===id) : null;
+  // En modification, on conserve les informations qui ne sont pas dans le formulaire
+  // (numéro, tableau d'amortissement, dotations déjà comptabilisées, facture liée...).
+  const record = {};
+  if (existing){
+    const formKeys = new Set((mod.fields||[]).map(f=>f.k));
+    Object.keys(existing).forEach(k => { if (!formKeys.has(k)) record[k] = existing[k]; });
+    record.id = id;
+  }
   let missing = false;
   (mod.fields||[]).forEach(f => {
     if (f.t === "image"){
@@ -2498,27 +2602,104 @@ async function saveForm(storeKey, id){
   if (missing){ toast("Merci de remplir les champs obligatoires (*)"); return; }
 
   if (mod.hasLignes){
-    const lignesValides = currentLignes.filter(l => l.designation && Number(l.quantite)>0);
+    const lignesValides = currentLignes.filter(l => l.designation && l.designation !== "__autre__" && Number(l.quantite)>0);
     if (lignesValides.length === 0){ toast("Ajoutez au moins une ligne (désignation, quantité, prix unitaire)"); return; }
     record.lignes = lignesValides.map(l => ({
-      designation: l.designation, quantite: Number(l.quantite)||0, prixUnitaire: Number(l.prixUnitaire)||0,
+      designation: String(l.designation).trim(), quantite: Number(l.quantite)||0, prixUnitaire: Number(l.prixUnitaire)||0,
       montant: (Number(l.quantite)||0)*(Number(l.prixUnitaire)||0)
     }));
     record.montantHT = record.lignes.reduce((s,l)=>s+l.montant, 0);
   }
 
+  if (mod.special === "paie"){
+    const periode = normalizePeriode(record.periode);
+    if (!periode){ toast("Période invalide : utilisez le format MM/AAAA (ex. 03/2026)"); return; }
+    record.periode = periode;
+    const doublon = (await getAllSafe(storeKey)).find(r => r.id !== id && r.employe === record.employe && normalizePeriode(r.periode) === periode);
+    if (doublon){ toast("Un bulletin existe déjà pour "+record.employe+" sur la période "+periode); return; }
+  }
+  if (storeKey === "stockSorties"){
+    const dispo = await getArticleStock(record.article) + (existing && existing.article === record.article ? Number(existing.quantite)||0 : 0);
+    if (Number(record.quantite) > dispo) toast("Attention : stock disponible de « "+record.article+" » insuffisant ("+fmtQty(dispo)+")");
+  }
+
   if (!id && NUMERO_PREFIXES[storeKey]){
     record.numero = await generateNumero(storeKey);
-  } else if (id){
-    const existing = (await getAll(storeKey)).find(r=>r.id===id);
-    if (existing && existing.numero) record.numero = existing.numero;
   }
 
   const newId = await putRecord(storeKey, record);
   if (!record.id) record.id = newId;
 
-  // -------- Comptabilisation automatique --------
-  if (mod.special === "factures"){
+  // -------- Comptabilisation automatique (remplace les écritures précédentes de la pièce) --------
+  const message = await comptabiliser(storeKey, record);
+  toast(message || (id ? "Modifications enregistrées" : (record.numero ? "Fiche "+record.numero+" créée" : "Fiche créée")));
+
+  closeModal();
+  renderModuleList(mod);
+}
+
+/* ---------------------------------------------------------
+   COMPTABILISATION AUTOMATIQUE
+   Chaque écriture générée porte sa pièce d'origine (« source » = module#id) :
+   modifier la pièce remplace ses écritures, la supprimer les retire.
+   --------------------------------------------------------- */
+const COMPTE_REGLEMENT = { "Caisse":"571", "Banque":"521" };
+function journalTresorerie(mode){ return mode === "Banque" ? "BQ-Banque" : "CA-Caisse"; }
+function journalSource(storeKey, id, suffixe){ return storeKey + "#" + id + (suffixe ? "#" + suffixe : ""); }
+
+/* Ancien format (avant la notion de « source ») : pièce + journal utilisés par chaque module. */
+function anciennesPieces(storeKey, record){
+  switch (storeKey){
+    case "factures": return { pieces:[record.numero], journaux:["VE-Ventes"] };
+    case "avoirs": return { pieces:[record.numero], journaux:["VE-Ventes"] };
+    case "facturesAchat": return { pieces:[record.numero], journaux:["AC-Achats"] };
+    case "stockEntrees": return { pieces:["STK-"+record.id], journaux:["AC-Achats"] };
+    case "treso_caisse": return { pieces:[record.numero], journaux:["BQ/CA","CA-Caisse"] };
+    case "paieCalcul": return { pieces:["PAIE-"+record.id], journaux:["OD-Paie"] };
+    case "immobilisations": return { pieces:[record.numero], journaux:["IM-Immobilisations"] };
+    default: return null;
+  }
+}
+
+/* Supprime les écritures générées pour une pièce (avec ses dotations si avecSousPieces). */
+async function supprimerEcritures(storeKey, record, avecSousPieces){
+  const source = journalSource(storeKey, record.id);
+  const legacy = anciennesPieces(storeKey, record);
+  const legacyPieces = legacy ? legacy.pieces.filter(Boolean) : [];
+  const rows = await getAllSafe("journal");
+  const cibles = rows.filter(r => {
+    if (r.source) return r.source === source || (avecSousPieces && r.source.startsWith(source + "#"));
+    if (!legacy) return false;
+    if (legacyPieces.includes(r.piece) && legacy.journaux.includes(r.journalType)) return true;
+    // anciennes dotations aux amortissements : pièce « IMMO-0001-2026 »
+    return avecSousPieces && storeKey === "immobilisations" && r.journalType === "OD-Amort"
+      && legacyPieces.some(p => String(r.piece||"").startsWith(p + "-"));
+  });
+  for (const r of cibles) await deleteRecord("journal", r.id);
+}
+
+/* Écritures d'un règlement saisi sur une facture (vente : 5xx/411, achat : 401/5xx). */
+function lignesReglement(record, achat){
+  const regle = Number(record.montantRegle)||0;
+  if (regle <= 0) return [];
+  const treso = COMPTE_REGLEMENT[record.modeReglement] || "571";
+  return achat
+    ? [{compte:"401", libelle:"Règlement "+(record.fournisseur||""), debit:regle, credit:0},
+       {compte:treso, libelle:"Règlement "+(record.fournisseur||""), debit:0, credit:regle}]
+    : [{compte:treso, libelle:"Encaissement "+(record.client||""), debit:regle, credit:0},
+       {compte:"411", libelle:"Encaissement "+(record.client||""), debit:0, credit:regle}];
+}
+
+/* Génère (ou régénère) les écritures et mouvements liés à une pièce. Renvoie le message à afficher. */
+async function comptabiliser(storeKey, record){
+  const mod = MODULE_INDEX[storeKey].mod;
+  const src = journalSource(storeKey, record.id);
+  const special = mod.special;
+  const comptabilisable = ["factures","avoirs","facturesAchat","stockEntree","treso","paie","immobilisations"].includes(special);
+  if (!comptabilisable) return "";
+  await supprimerEcritures(storeKey, record, false);
+
+  if (special === "factures"){
     const ht = Number(record.montantHT)||0, tvaPct = Number(record.tvaPct)||0, timbre = Number(record.timbreQuittance)||0;
     const tva = ht*tvaPct/100, ttc = ht+tva+timbre;
     await postJournal(record.date, "VE-Ventes", record.numero, [
@@ -2526,21 +2707,22 @@ async function saveForm(storeKey, id){
       {compte:"701", libelle:"Vente "+(record.client||""), debit:0, credit:ht},
       ...(tva>0 ? [{compte:"4431", libelle:"TVA facturée", debit:0, credit:tva}] : []),
       ...(timbre>0 ? [{compte:"4472", libelle:"Timbre de quittance à reverser", debit:0, credit:timbre}] : []),
-    ]);
+    ], src);
+    await postJournal(record.date, journalTresorerie(record.modeReglement), record.numero, lignesReglement(record, false), src);
     await syncStockSortiesForFacture(record);
-    toast("Facture "+record.numero+" enregistrée — écriture comptable et sortie de stock générées automatiquement");
+    return "Facture "+record.numero+" enregistrée — écritures comptables et sortie de stock générées automatiquement";
   }
-  else if (mod.special === "avoirs"){
+  if (special === "avoirs"){
     const ht = Number(record.montantHT)||0, tvaPct = Number(record.tvaPct)||0;
     const tva = ht*tvaPct/100, ttc = ht+tva;
     await postJournal(record.date, "VE-Ventes", record.numero, [
       {compte:"701", libelle:"Avoir "+(record.client||""), debit:ht, credit:0},
       ...(tva>0 ? [{compte:"4431", libelle:"TVA sur avoir", debit:tva, credit:0}] : []),
       {compte:"411", libelle:"Client "+(record.client||""), debit:0, credit:ttc},
-    ]);
-    toast("Avoir "+record.numero+" enregistré — écriture comptable générée automatiquement");
+    ], src);
+    return "Avoir "+record.numero+" enregistré — écriture comptable générée automatiquement";
   }
-  else if (mod.special === "facturesAchat"){
+  if (special === "facturesAchat"){
     const ht = Number(record.montantHT)||0, tvaPct = Number(record.tvaPct)||0, timbre = Number(record.timbreQuittance)||0;
     const tva = ht*tvaPct/100, ttc = ht+tva+timbre;
     await postJournal(record.date, "AC-Achats", record.numero, [
@@ -2548,20 +2730,23 @@ async function saveForm(storeKey, id){
       ...(tva>0 ? [{compte:"4452", libelle:"TVA récupérable sur achats", debit:tva, credit:0}] : []),
       ...(timbre>0 ? [{compte:"646", libelle:"Droits de timbre (quittance)", debit:timbre, credit:0}] : []),
       {compte:"401", libelle:"Fournisseur "+(record.fournisseur||""), debit:0, credit:ttc},
-    ]);
-    toast("Facture d'achat "+record.numero+" enregistrée — écriture comptable générée automatiquement");
+    ], src);
+    await postJournal(record.date, journalTresorerie(record.modeReglement), record.numero, lignesReglement(record, true), src);
+    await syncStockEntreesForFactureAchat(record);
+    return "Facture d'achat "+record.numero+" enregistrée — écritures comptables et entrée en stock générées automatiquement";
   }
-  else if (mod.special === "stockEntree"){
+  if (special === "stockEntree"){
+    if (record.auto) return "Entrée stock mise à jour (liée à la facture d'achat "+(record.factureAchatRef||"")+", déjà comptabilisée)";
     const ht = (Number(record.quantite)||0)*(Number(record.prixUnitaire)||0);
     const tvaPct = Number(record.tvaPct)||0, tva = ht*tvaPct/100;
     await postJournal(record.date, "AC-Achats", "STK-"+record.id, [
       {compte:"601", libelle:"Achat "+(record.article||""), debit:ht, credit:0},
       ...(tva>0 ? [{compte:"4452", libelle:"TVA récupérable", debit:tva, credit:0}] : []),
       {compte:"401", libelle:"Fournisseur "+(record.fournisseur||""), debit:0, credit:ht+tva},
-    ]);
-    toast("Entrée stock enregistrée — écriture comptable générée automatiquement");
+    ], src);
+    return "Entrée stock enregistrée — écriture comptable générée automatiquement";
   }
-  else if (mod.special === "treso"){
+  if (special === "treso"){
     const montant = Number(record.montant)||0;
     const compteTreso = mod.compte;
     const lignes = record.type === "Encaissement"
@@ -2569,14 +2754,13 @@ async function saveForm(storeKey, id){
          {compte:record.contrepartie, libelle:record.motif, debit:0, credit:montant}]
       : [{compte:record.contrepartie, libelle:record.motif, debit:montant, credit:0},
          {compte:compteTreso, libelle:record.motif, debit:0, credit:montant}];
-    await postJournal(record.date, "BQ/CA", record.numero, lignes);
-    toast("Ticket "+record.numero+" enregistré — écriture comptable générée automatiquement");
+    await postJournal(record.date, "CA-Caisse", record.numero, lignes, src);
+    return "Ticket "+record.numero+" enregistré — écriture comptable générée automatiquement";
   }
-  else if (mod.special === "paie"){
+  if (special === "paie"){
     const params = await getPaieParams();
     const bareme = await getBareme();
     const p = computePaie(record, params, bareme);
-    const dateStr = record.periode ? "20"+record.periode.split("/").reverse().join("-").slice(0,7)+"-28" : "";
     const lignes = [
       {compte:"661", libelle:"Salaire brut "+(record.employe||""), debit:p.brutSocial, credit:0},
       {compte:"422", libelle:"Net à payer "+(record.employe||""), debit:0, credit:p.netAPayer},
@@ -2589,10 +2773,10 @@ async function saveForm(storeKey, id){
     lignes.push({compte:"664", libelle:"Charges sociales patronales", debit:p.cnpsPatronale+p.cmuPatronale, credit:0});
     lignes.push({compte:"431", libelle:"CNPS patronale", debit:0, credit:p.cnpsPatronale});
     lignes.push({compte:"4382", libelle:"CMU patronale", debit:0, credit:p.cmuPatronale});
-    await postJournal(dateStr, "OD-Paie", "PAIE-"+record.id, lignes);
-    toast("Bulletin de "+(record.employe||"")+" enregistré — charges de personnel comptabilisées automatiquement");
+    await postJournal(periodeToDate(record.periode), "OD-Paie", "PAIE-"+record.id, lignes, src);
+    return "Bulletin de "+(record.employe||"")+" enregistré — charges de personnel comptabilisées automatiquement";
   }
-  else if (mod.special === "immobilisations"){
+  if (special === "immobilisations"){
     const ht = Number(record.valeurOrigineHT)||0;
     const tvaPct = Number(record.tvaPct)||0;
     const tva = ht*tvaPct/100;
@@ -2600,18 +2784,28 @@ async function saveForm(storeKey, id){
       {compte:record.compteImmo, libelle:"Acquisition "+(record.designation||""), debit:ht, credit:0},
       ...(tva>0 ? [{compte:"4451", libelle:"TVA récupérable sur immobilisation", debit:tva, credit:0}] : []),
       {compte:record.compteContrepartie, libelle:(record.modePaiement||"")+" — "+(record.designation||""), debit:0, credit:ht+tva},
-    ]);
+    ], src);
     record.planAmortissement = computePlanAmortissement(record);
     record.anneesPostees = record.anneesPostees || [];
     await putRecord(storeKey, record);
-    toast("Immobilisation "+record.numero+" enregistrée — acquisition comptabilisée et tableau d'amortissement généré automatiquement");
+    return "Immobilisation "+record.numero+" enregistrée — acquisition comptabilisée et tableau d'amortissement généré automatiquement";
   }
-  else {
-    toast(id? "Modifications enregistrées" : (record.numero ? "Fiche "+record.numero+" créée" : "Fiche créée"));
-  }
+  return "";
+}
 
-  closeModal();
-  renderModuleList(mod);
+/* Période de paie : « 3/2026 » ou « 03/2026 » -> « 03/2026 » ; invalide -> "" */
+function normalizePeriode(periode){
+  const m = /^\s*(\d{1,2})\s*\/\s*(\d{4})\s*$/.exec(String(periode||""));
+  if (!m) return "";
+  const mois = Number(m[1]), annee = Number(m[2]);
+  if (mois < 1 || mois > 12 || annee < 2000 || annee > 2099) return "";
+  return String(mois).padStart(2,"0") + "/" + annee;
+}
+/* Date comptable d'un bulletin : dernier jour du mois de la période (AAAA-MM-JJ). */
+function periodeToDate(periode){
+  const { mois, annee } = parsePeriode(normalizePeriode(periode));
+  if (!mois || !annee) return "";
+  return annee + "-" + String(mois).padStart(2,"0") + "-" + String(new Date(annee, mois, 0).getDate()).padStart(2,"0");
 }
 
 /* ---------------------------------------------------------
@@ -2692,7 +2886,7 @@ async function postAmortissementAnnee(storeKey, id, annee){
   await postJournal(annee+"-12-31", "OD-Amort", (rec.numero||"IMMO")+"-"+annee, [
     {compte:"681", libelle:"Dotation amort. "+(rec.designation||""), debit:ligne.dotation, credit:0},
     {compte:rec.compteAmort, libelle:"Amort. "+(rec.designation||""), debit:0, credit:ligne.dotation},
-  ]);
+  ], journalSource(storeKey, rec.id, "dotation-"+annee));
   rec.anneesPostees.push(annee);
   await putRecord(storeKey, rec);
   toast("Dotation "+annee+" de "+fmt(ligne.dotation)+" comptabilisée automatiquement");
@@ -2708,6 +2902,7 @@ async function printPlanAmortissement(id){
   const societe = societeRows[0] || {};
   const plan = rec.planAmortissement || [];
   const anneesPostees = rec.anneesPostees || [];
+  escInPlace(rec); escInPlace(societe);
   const html = `
   <html><head><meta charset="UTF-8"><title>Tableau d'amortissement — ${rec.designation||""}</title>
   <style>
@@ -2772,6 +2967,7 @@ async function printFacture(storeKey, id){
   const regle = Number(record.montantRegle)||0;
   const solde = ttc-regle;
 
+  escInPlace(record); escInPlace(societe);
   const html = `
   <html><head><meta charset="UTF-8"><title>${isAchat?"Facture d'achat":"Facture de vente"} — ${record.numero||""}</title>
   <style>
@@ -2838,10 +3034,12 @@ async function printFacture(storeKey, id){
 
 
 /* Poste une ou plusieurs lignes d'écriture dans le Journal (08_Journal) */
-async function postJournal(date, journalType, piece, lignes){
+async function postJournal(date, journalType, piece, lignes, source){
   for (const l of lignes){
     if (!l.compte || (!l.debit && !l.credit)) continue;
-    await putRecord("journal", { date, journalType, piece, compte:l.compte, libelle:l.libelle, debit:l.debit||0, credit:l.credit||0 });
+    const ecriture = { date, journalType, piece, compte:String(l.compte).trim(), libelle:l.libelle||"", debit:l.debit||0, credit:l.credit||0 };
+    if (source) ecriture.source = source;
+    await putRecord("journal", ecriture);
   }
 }
 
@@ -2869,6 +3067,27 @@ async function syncStockSortiesForFacture(record){
   }
 }
 
+/* Symétrique pour les achats : chaque ligne d'une facture d'achat correspondant à un article
+   crée une entrée en stock liée (sans écriture comptable : la facture d'achat est déjà comptabilisée). */
+async function syncStockEntreesForFactureAchat(record){
+  const [articles, entrees] = await Promise.all([getAllSafe("articles"), getAllSafe("stockEntrees")]);
+  const articleNames = new Set(articles.map(a => a.designation));
+  for (const e of entrees.filter(e => e.factureAchatRef === record.numero && e.auto)) await deleteRecord("stockEntrees", e.id);
+  for (const l of (Array.isArray(record.lignes) ? record.lignes : [])){
+    if (!articleNames.has(l.designation) || !(Number(l.quantite) > 0)) continue;
+    await putRecord("stockEntrees", {
+      date: record.date, fournisseur: record.fournisseur, article: l.designation,
+      quantite: Number(l.quantite), prixUnitaire: Number(l.prixUnitaire)||0, tvaPct: Number(record.tvaPct)||0,
+      factureAchatRef: record.numero, auto: true
+    });
+  }
+}
+async function removeStockEntreesForFactureAchat(numero){
+  if (!numero) return;
+  const entrees = await getAllSafe("stockEntrees");
+  for (const e of entrees.filter(e => e.factureAchatRef === numero && e.auto)) await deleteRecord("stockEntrees", e.id);
+}
+
 /* Annule les sorties de stock automatiques liées à une facture supprimée (restitue le stock). */
 async function removeStockSortiesForFacture(numero){
   if (!numero) return;
@@ -2877,26 +3096,25 @@ async function removeStockSortiesForFacture(numero){
   for (const s of liees){ await deleteRecord("stockSorties", s.id); }
 }
 
-/* Génère automatiquement une facture depuis un devis accepté */
+/* Génère automatiquement une facture depuis un devis accepté (avec une ligne reprenant le devis). */
 async function genererFactureDepuis(storeKey, id){
   const source = (await getAll(storeKey)).find(r=>r.id===id);
   if (!source){ toast("Document introuvable"); return; }
+  if (source.factureNumero){ toast("Ce document a déjà été facturé ("+source.factureNumero+")"); return; }
+  const ht = Number(source.montantHT)||0;
+  if (!(ht > 0)){ toast("Le montant HT du document doit être supérieur à 0"); return; }
   const numero = await generateNumero("factures");
   const facture = {
     numero, date: new Date().toISOString().slice(0,10), client: source.client,
-    montantHT: Number(source.montantHT)||0, tvaPct: 18, montantRegle: 0
+    lignes: [{ designation: source.objet ? source.objet : "Selon devis "+(source.numero||""), quantite: 1, prixUnitaire: ht, montant: ht }],
+    montantHT: ht, tvaPct: 18, timbreQuittance: 0, montantRegle: 0, modeReglement: "Caisse",
+    devisRef: source.numero || ""
   };
-  const newId = await putRecord("factures", facture);
-  facture.id = newId;
-  const ht = facture.montantHT, tva = ht*0.18, ttc = ht+tva;
-  await postJournal(facture.date, "VE-Ventes", numero, [
-    {compte:"411", libelle:"Client "+(facture.client||""), debit:ttc, credit:0},
-    {compte:"701", libelle:"Vente "+(facture.client||""), debit:0, credit:ht},
-    {compte:"4431", libelle:"TVA facturée", debit:0, credit:tva},
-  ]);
+  facture.id = await putRecord("factures", facture);
+  await comptabiliser("factures", facture);
   source.factureNumero = numero;
   await putRecord(storeKey, source);
-  toast("Facture "+numero+" générée automatiquement depuis "+(source.numero||"le document"));
+  toast("Facture "+numero+" générée depuis "+(source.numero||"le document")+" (TVA 18 % — modifiable dans la facture)");
   renderModuleList(MODULE_INDEX[storeKey].mod);
 }
 
@@ -2914,7 +3132,7 @@ async function renderSingleForm(mod){
       const hasImg = !!val;
       return `<div class="field"><label>${f.l}</label>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <img id="img_${f.k}" src="${val}" style="max-width:130px; max-height:70px; object-fit:contain; border:1px solid #E3E7F1; border-radius:6px; background:#fff; ${hasImg?"":"display:none;"}">
+          <img id="img_${f.k}" src="${esc(val)}" style="max-width:130px; max-height:70px; object-fit:contain; border:1px solid #E3E7F1; border-radius:6px; background:#fff; ${hasImg?"":"display:none;"}">
           <input type="file" id="sf_${f.k}" accept="image/*" onchange="handleImageFieldChange(event,'${f.k}')">
           <button type="button" id="imgremove_${f.k}" class="btn small ghost" style="${hasImg?"":"display:none;"}" onclick="removeImageField('${f.k}')">Supprimer le logo</button>
         </div>
@@ -2923,7 +3141,7 @@ async function renderSingleForm(mod){
     }
     return `
     <div class="field"><label>${f.l}</label>
-      <input id="sf_${f.k}" type="${f.t}" value="${record[f.k] ?? ""}"></div>`;
+      <input id="sf_${f.k}" type="${f.t}" value="${esc(record[f.k] ?? "")}"></div>`;
   }).join("");
 
   document.getElementById("content").innerHTML = `
@@ -2954,7 +3172,7 @@ async function saveSingle(storeKey){
    7) GRAND LIVRE / BALANCE / CNPS (vues calculees)
    --------------------------------------------------------- */
 async function renderGrandLivre(){
-  const rows = await getAllSafe("journal");
+  const rows = (await getAllSafe("journal")).map(escInPlace);
   const byCompte = {};
   rows.forEach(r => {
     const c = r.compte || "—";
@@ -2977,7 +3195,7 @@ async function renderGrandLivre(){
   document.getElementById("content").innerHTML = html;
 }
 async function renderBalance(){
-  const rows = await getAllSafe("journal");
+  const rows = (await getAllSafe("journal")).map(escInPlace);
   const byCompte = {};
   rows.forEach(r => {
     const c = r.compte || "—";
@@ -3026,10 +3244,10 @@ async function renderLivrePaie(periodeFiltre){
     totBrut+=p.brutSocial; totCnps+=p.cnpsSalariale; totIts+=p.its; totCmu+=p.cmuSalarie; totAutres+=autresRetenues; totNet+=p.netAPayer;
     return `<tr>
       <td>${i+1}</td>
-      <td>${emp.matricule||"—"}</td>
-      <td>${r.employe||""}</td>
-      <td>${emp.poste||"—"}</td>
-      <td>${r.periode||""}</td>
+      <td>${esc(emp.matricule||"—")}</td>
+      <td>${esc(r.employe||"")}</td>
+      <td>${esc(emp.poste||"—")}</td>
+      <td>${esc(r.periode||"")}</td>
       <td class="num">${fmt(p.brutSocial)}</td>
       <td class="num">${fmt(p.cnpsSalariale)}</td>
       <td class="num">${fmt(p.its)}</td>
@@ -3041,7 +3259,7 @@ async function renderLivrePaie(periodeFiltre){
   }).join("");
 
   const totalsRow = sorted.length ? `<tr class="tot">
-      <td colspan="5"><b>TOTAL${periode?" — "+periode:" (toutes périodes)"}</b></td>
+      <td colspan="5"><b>TOTAL${periode?" — "+esc(periode):" (toutes périodes)"}</b></td>
       <td class="num"><b>${fmt(totBrut)}</b></td>
       <td class="num"><b>${fmt(totCnps)}</b></td>
       <td class="num"><b>${fmt(totIts)}</b></td>
@@ -3052,7 +3270,7 @@ async function renderLivrePaie(periodeFiltre){
     </tr>` : "";
 
   const periodeOptions = [`<option value="" ${!periode?"selected":""}>Toutes les périodes</option>`]
-    .concat(periodes.map(p => `<option value="${p}" ${p===periode?"selected":""}>${p}</option>`)).join("");
+    .concat(periodes.map(p => `<option value="${esc(p)}" ${p===periode?"selected":""}>${esc(p)}</option>`)).join("");
 
   document.getElementById("content").innerHTML = `
     <h1 class="page-title">Livre de paie</h1>
@@ -3060,7 +3278,7 @@ async function renderLivrePaie(periodeFiltre){
     <div class="toolbar" style="display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
       <label style="font-size:12px; color:#5B6479;">Période :</label>
       <select onchange="renderLivrePaie(this.value)" style="width:auto;">${periodeOptions}</select>
-      <button class="btn gold" onclick="printLivrePaie('${periode}')">🖨️ Imprimer le livre de paie</button>
+      <button class="btn gold" onclick="printLivrePaie(${esc(JSON.stringify(periode))})">🖨️ Imprimer le livre de paie</button>
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
@@ -3078,6 +3296,7 @@ async function printLivrePaie(periode){
   const employes = await getAllSafe("rhEmployes");
   const societeRows = await getAllSafe("societe");
   const societe = societeRows[0] || {};
+  rows.forEach(escInPlace); employes.forEach(escInPlace); escInPlace(societe);
 
   const filtered = periode ? rows.filter(r=>r.periode===periode) : rows;
   const sorted = filtered.slice().sort((a,b) => (a.employe||"").localeCompare(b.employe||""));
@@ -3139,7 +3358,7 @@ async function printLivrePaie(periode){
 }
 
 async function renderCnps(){
-  const rows = await getAllSafe("paieCalcul");
+  const rows = (await getAllSafe("paieCalcul")).map(escInPlace);
   const params = await getPaieParams();
   const bareme = await getBareme();
   const lines = rows.map(r => {
@@ -3157,7 +3376,7 @@ async function renderCnps(){
 async function renderAlertesStock(){
   const articles = await getAllSafe("articles");
   const stocks = await getAllArticleStocks();
-  const rows = articles.map(a => ({...a, stock: stocks[a.designation]||0}))
+  const rows = articles.map(a => escInPlace({...a, stock: stocks[a.designation]||0}))
                         .filter(a => a.stock < (Number(a.stockMini)||0));
   const lines = rows.map(a => `<tr>
       <td>${a.code||""}</td><td>${a.designation||""}</td>
@@ -3178,7 +3397,7 @@ async function renderAlertesStock(){
 async function renderReappro(){
   const articles = await getAllSafe("articles");
   const stocks = await getAllArticleStocks();
-  const rows = articles.map(a => ({...a, stock: stocks[a.designation]||0}))
+  const rows = articles.map(a => escInPlace({...a, stock: stocks[a.designation]||0}))
                         .filter(a => a.stock < (Number(a.stockMini)||0))
                         .map(a => {
                           const mini = Number(a.stockMini)||0;
@@ -3208,7 +3427,7 @@ async function renderReappro(){
 
 /* ---- Nouvelle fonctionnalité : Relances clients (factures impayées) ---- */
 async function renderRelances(){
-  const factures = await getAllSafe("factures");
+  const factures = (await getAllSafe("factures")).map(escInPlace);
   const today = new Date();
   const rows = factures.map(r => {
       const ht = Number(r.montantHT)||0, tvaPct = Number(r.tvaPct)||0, regle = Number(r.montantRegle)||0, timbre = Number(r.timbreQuittance)||0;
@@ -3373,31 +3592,13 @@ async function genererLettreRelance(id){
 
 /* ---- Nouvelle fonctionnalité : Prévisionnel de trésorerie ---- */
 async function renderPrevisionnel(){
-  const [facturesVente, facturesAchat, ...tresoLists] = await Promise.all([
-    getAllSafe("factures"), getAllSafe("facturesAchat"),
-    ...TRESO_KEYS.map(k => getAllSafe(k))
+  const [facturesVente, facturesAchat, tresorerie] = await Promise.all([
+    getAllSafe("factures"), getAllSafe("facturesAchat"), computeTresorerie()
   ]);
-
-  // Solde de trésorerie actuel = somme des mouvements (Encaissement - Décaissement) de tous les comptes
-  let soldeActuel = 0;
-  tresoLists.forEach(list => {
-    list.forEach(r => {
-      const montant = Number(r.montant)||0;
-      soldeActuel += r.type === "Encaissement" ? montant : (r.type === "Décaissement" ? -montant : 0);
-    });
-  });
-
-  const encaissementsAttendus = facturesVente.reduce((s,r) => {
-    const ht = Number(r.montantHT)||0, tva = ht*(Number(r.tvaPct)||0)/100, timbre = Number(r.timbreQuittance)||0;
-    const solde = (ht+tva+timbre) - (Number(r.montantRegle)||0);
-    return s + Math.max(0, solde);
-  }, 0);
-
-  const decaissementsAttendus = facturesAchat.reduce((s,r) => {
-    const ht = Number(r.montantHT)||0, tva = ht*(Number(r.tvaPct)||0)/100, timbre = Number(r.timbreQuittance)||0;
-    const solde = (ht+tva+timbre) - (Number(r.montantRegle)||0);
-    return s + Math.max(0, solde);
-  }, 0);
+  // Même calcul que l'accueil : soldes initiaux + mouvements des comptes de trésorerie.
+  const soldeActuel = tresorerie.total;
+  const encaissementsAttendus = facturesVente.reduce((s,r) => s + Math.max(0, montantsFacture(r).solde), 0);
+  const decaissementsAttendus = facturesAchat.reduce((s,r) => s + Math.max(0, montantsFacture(r).solde), 0);
 
   const soldePrevisionnel = soldeActuel + encaissementsAttendus - decaissementsAttendus;
 
@@ -3405,7 +3606,7 @@ async function renderPrevisionnel(){
     <h1 class="page-title">Prévisionnel de trésorerie</h1>
     <div class="page-sub">Projection basée sur le solde actuel et les factures clients/fournisseurs en attente de règlement</div>
     <div class="kpis" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin:18px 0;">
-      ${kpiCard("Solde de trésorerie actuel", fmt(soldeActuel), "Banques + caisses, mouvements cumulés")}
+      ${kpiCard("Solde de trésorerie actuel", fmt(soldeActuel), "Caisses + banques (soldes initiaux + mouvements)")}
       ${kpiCard("Encaissements attendus", fmt(encaissementsAttendus), "Factures clients non soldées")}
       ${kpiCard("Décaissements attendus", fmt(decaissementsAttendus), "Factures fournisseurs non soldées")}
       ${kpiCard("Solde prévisionnel", fmt(soldePrevisionnel), "Si toutes les factures en cours étaient réglées")}
@@ -3600,6 +3801,7 @@ async function printBulletin(id){
   }
   const lignesDivHtml = lignesDiv.join("");
 
+  escInPlace(record); escInPlace(p); escInPlace(emp); escInPlace(societe);
   const html = `
   <html><head><meta charset="UTF-8"><title>Bulletin de paie - ${record.employe} - ${record.periode}</title>
   <style>
@@ -3782,6 +3984,7 @@ async function printTicket(storeKey, id){
   const societeRows = await getAllSafe("societe");
   const societe = societeRows[0] || {};
   const montant = Number(r.montant)||0;
+  escInPlace(r); escInPlace(societe);
   const html = `
   <html><head><meta charset="UTF-8"><title>Ticket ${r.numero}</title>
   <style>

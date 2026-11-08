@@ -11,6 +11,7 @@
     "start": "node serveur/server.mjs",
     "test": "node --test serveur/*.test.mjs",
     "test:php": "node serveur/test-php.mjs",
-    "paquet:php": "node outils/paquet-php.mjs"
+    "paquet:php": "node outils/paquet-php.mjs",
+    "test:e2e": "node serveur/e2e-erp.cjs"
   }
 }

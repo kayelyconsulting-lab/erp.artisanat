@@ -342,6 +342,16 @@
      "l": "Montant réglé (payé)",
      "t": "number",
      "def": 0
+    },
+    {
+     "k": "modeReglement",
+     "l": "Réglé par (compte de trésorerie)",
+     "t": "select",
+     "opts": [
+      "Caisse",
+      "Banque"
+     ],
+     "def": "Caisse"
     }
    ],
    "cols": [
@@ -784,6 +794,16 @@
      "l": "Montant réglé (encaissé)",
      "t": "number",
      "def": 0
+    },
+    {
+     "k": "modeReglement",
+     "l": "Encaissé par (compte de trésorerie)",
+     "t": "select",
+     "opts": [
+      "Caisse",
+      "Banque"
+     ],
+     "def": "Caisse"
     }
    ],
    "cols": [
@@ -1262,7 +1282,10 @@
       "VE-Ventes",
       "BQ-Banque",
       "CA-Caisse",
-      "OD-Opérations diverses"
+      "OD-Opérations diverses",
+      "OD-Paie",
+      "OD-Amort",
+      "IM-Immobilisations"
      ]
     },
     {
@@ -1643,13 +1666,13 @@
    "fields": [
     {
      "k": "trancheMin",
-     "l": "Tranche annuelle - de (FCFA)",
+     "l": "Tranche mensuelle - de (FCFA)",
      "t": "number",
      "req": 1
     },
     {
      "k": "trancheMax",
-     "l": "Tranche annuelle - à (FCFA, 0 = illimité)",
+     "l": "Tranche mensuelle - à (FCFA, 0 = illimité)",
      "t": "number",
      "req": 1
     },

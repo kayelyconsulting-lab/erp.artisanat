@@ -315,8 +315,15 @@ function kgp_save(array $user, string $store, $input, string $sessionHash): int 
 
 function kgp_remove(array $user, string $store, int $id): bool {
   $mod = kgp_module($store);
-  if (!kgp_is_admin($user)) throw new HttpError(403, "Suppression réservée à l'administrateur.");
   if ($id <= 0) throw new ValidationError(['Identifiant invalide']);
+  if (!kgp_is_admin($user)){
+    // Écritures / mouvements générés automatiquement (« source » ou « auto ») : remplacés quand
+    // leur pièce est modifiée, donc supprimables par tout rôle qui peut écrire dans le module.
+    $rec = kgp_get($mod['key'], $id);
+    $genere = $rec && ((is_string($rec['source'] ?? null) && $rec['source'] !== '') || ($rec['auto'] ?? null) === true);
+    if (!$genere || $mod['key'] === 'utilisateurs') throw new HttpError(403, "Suppression réservée à l'administrateur.");
+    kgp_assert_can_write($user, $mod);
+  }
   return kgp_transaction(function () use ($user, $mod, $id){
     if ($mod['key'] === 'utilisateurs'){
       if ($id === $user['id']) throw new ValidationError(['Vous ne pouvez pas supprimer votre propre compte.']);

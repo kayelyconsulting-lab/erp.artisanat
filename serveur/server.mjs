@@ -158,8 +158,16 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
 
   function remove(user, store, id){
     const mod = moduleOr404(store);
-    if (!isAdmin(user)) throw new HttpError(403, "Suppression réservée à l'administrateur.");
     if (!Number.isInteger(id) || id <= 0) throw new ValidationError(["Identifiant invalide"]);
+    if (!isAdmin(user)){
+      // Les écritures et mouvements générés automatiquement (champ « source » ou « auto »)
+      // sont remplacés quand leur pièce est modifiée : tout rôle qui peut écrire dans le
+      // module peut les retirer. Les autres suppressions restent réservées à l'administrateur.
+      const rec = db.get(mod.key, id);
+      const genere = rec && (typeof rec.source === "string" && rec.source !== "" || rec.auto === true);
+      if (!genere || mod.key === "utilisateurs") throw new HttpError(403, "Suppression réservée à l'administrateur.");
+      assertCanWrite(user, mod);
+    }
     return db.transaction(() => {
       if (mod.key === "utilisateurs"){
         if (id === user.id) throw new ValidationError(["Vous ne pouvez pas supprimer votre propre compte."]);
