@@ -1100,11 +1100,7 @@ const DEFAULT_PLAN_COMPTABLE_SYSCOHADA = [
 async function seedPlanComptable(){
   const existing = await getAllSafe("planComptable");
   const existingNums = new Set(existing.map(e => String(e.compte).trim()));
-  for (const c of DEFAULT_PLAN_COMPTABLE_SYSCOHADA){
-    if (!existingNums.has(c.compte)){
-      await putRecord("planComptable", c);
-    }
-  }
+  await putRecords("planComptable", DEFAULT_PLAN_COMPTABLE_SYSCOHADA.filter(c => !existingNums.has(c.compte)));
 }
 
 /* ---- Paramètres de paie par défaut (modifiables sous Paramètres > Paie) ----
@@ -1441,6 +1437,18 @@ function putRecord(store, record){
     r.onsuccess = () => { resolve(r.result); notifyDataChanged(); };
     r.onerror = reject;
   });
+}
+/* Enregistre plusieurs fiches. En mode serveur : une seule requête (au lieu d'une par fiche). */
+async function putRecords(store, records){
+  if (!records.length) return [];
+  if (KGP_SERVER){
+    const r = await kgpApi("PUT", "/api/data/" + encodeURIComponent(store) + "/lot", records);
+    notifyDataChanged();
+    return r.ids;
+  }
+  const ids = [];
+  for (const rec of records) ids.push(await putRecord(store, rec));
+  return ids;
 }
 function deleteRecord(store, id){
   if (KGP_SERVER){
@@ -2029,11 +2037,17 @@ function renderCell(mod, col, val){
 }
 /* Recherche : la liste est redessinée, puis le curseur est remis dans le champ (sinon
    la saisie s'interrompait à chaque caractère). */
-async function onSearch(key, val){
+let searchTimer = null;
+function onSearch(key, val){
   searchTerm = val;
-  await renderModuleList(MODULE_INDEX[key].mod);
-  const box = document.querySelector("#content .search-box");
-  if (box){ box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+  clearTimeout(searchTimer);
+  // On attend une courte pause de frappe, puis on redessine et on remet le curseur
+  // (avec la dernière saisie : aucun caractère perdu même si le serveur est lent).
+  searchTimer = setTimeout(async () => {
+    await renderModuleList(MODULE_INDEX[key].mod);
+    const box = document.querySelector("#content .search-box");
+    if (box){ box.value = searchTerm; box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+  }, 250);
 }
 
 /* ---------------------------------------------------------
@@ -2591,7 +2605,22 @@ async function applyAutofill(storeKey, sourceFieldKey, autofillRule, selectedVal
 
 function closeModal(){ document.getElementById("overlay").classList.remove("show"); }
 
+let enregistrementEnCours = false;
+/* Un seul enregistrement à la fois : sur une connexion lente, un double clic sur
+   « Enregistrer » créait la pièce deux fois. */
 async function saveForm(storeKey, id){
+  if (enregistrementEnCours) return;
+  enregistrementEnCours = true;
+  const bouton = document.querySelector("#overlay .modal-actions .btn.gold");
+  const libelle = bouton ? bouton.textContent : "";
+  if (bouton){ bouton.disabled = true; bouton.textContent = "Enregistrement…"; }
+  try { await saveFormInterne(storeKey, id); }
+  finally {
+    enregistrementEnCours = false;
+    if (bouton && document.body.contains(bouton)){ bouton.disabled = false; bouton.textContent = libelle; }
+  }
+}
+async function saveFormInterne(storeKey, id){
   const mod = MODULE_INDEX[storeKey].mod;
   const existing = id ? (await getAll(storeKey)).find(r=>r.id===id) : null;
   // En modification, on conserve les informations qui ne sont pas dans le formulaire
@@ -4008,6 +4037,11 @@ function majTotauxPiece(){
   if (te) te.innerHTML = Math.abs(d-c) < 0.005 && d > 0 ? `<span class="badge ok">Pièce équilibrée</span>` : `<span class="badge danger">Écart : ${fmt(d-c)}</span>`;
 }
 async function savePiece(){
+  if (enregistrementEnCours) return;
+  enregistrementEnCours = true;
+  try { await savePieceInterne(); } finally { enregistrementEnCours = false; }
+}
+async function savePieceInterne(){
   const date = document.getElementById("pc_date").value;
   const journalType = document.getElementById("pc_journal").value;
   const piece = document.getElementById("pc_piece").value.trim();
@@ -4843,7 +4877,7 @@ async function seedDefaults(){
 
   const bareme = await getAllSafe("baremeIts");
   if (bareme.length === 0){
-    for (const tr of DEFAULT_BAREME_ITS){ await putRecord("baremeIts", tr); }
+    await putRecords("baremeIts", DEFAULT_BAREME_ITS);
   }
 
   /* Migration unique vers le barème ITS réformé (ordonnance 2023-719, en vigueur depuis
@@ -4853,7 +4887,7 @@ async function seedDefaults(){
   if (!params.reformITS2024Applique){
     const anciens = await getAllSafe("baremeIts");
     for (const tr of anciens){ await deleteRecord("baremeIts", tr.id); }
-    for (const tr of DEFAULT_BAREME_ITS){ await putRecord("baremeIts", tr); }
+    await putRecords("baremeIts", DEFAULT_BAREME_ITS);
     params.reformITS2024Applique = true;
     await putRecord("paieParametres", params);
   }

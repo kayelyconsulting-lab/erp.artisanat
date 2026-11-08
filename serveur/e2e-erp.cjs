@@ -44,19 +44,53 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   assert.equal(prep.status, 0, "préparation");
   console.log("Préparation OK");
 
-  browser = await chromium.launch();
-  const ctx = await browser.newContext();
+  // En mode distant, le navigateur passe par le proxy HTTPS de l'environnement s'il y en a un.
+  const proxy = REMOTE && (process.env.HTTPS_PROXY || process.env.https_proxy);
+  browser = await chromium.launch(proxy ? { proxy: { server: proxy } } : {});
+  const ctx = await browser.newContext(proxy ? { ignoreHTTPSErrors: true } : {});
   page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
   page.on("dialog", d => d.accept());
   await page.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
   await page.goto(R + SOCIETE_PATH + "/");
-  await page.waitForSelector("#setupCard", { state: "visible" });
-  await page.fill("#setupPass", "Admin-Demo-2026"); await page.fill("#setupPass2", "Admin-Demo-2026");
-  await page.click("#setupCard button");
-  await page.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: 60000 });
-  await page.evaluate(() => { window.__toasts = []; const o = window.toast; window.toast = m => { window.__toasts.push(m); o(m); }; });
+  await page.waitForFunction(() => ["setupCard", "loginCard"].some(id => getComputedStyle(document.getElementById(id)).display !== "none")
+    && getComputedStyle(document.getElementById("loginScreen")).display !== "none");
+  const dejaInstallee = await page.evaluate(() => getComputedStyle(document.getElementById("setupCard")).display === "none");
+  if (dejaInstallee){
+    // Société de test déjà utilisée par un essai précédent : on se reconnecte puis on vide ses données.
+    await page.fill("#loginUser", "admin"); await page.fill("#loginPass", "Admin-Demo-2026");
+    await page.click("#loginCard button");
+  } else {
+    await page.fill("#setupPass", "Admin-Demo-2026"); await page.fill("#setupPass2", "Admin-Demo-2026");
+    await page.click("#setupCard button");
+  }
+  // Premier accès : l'application installe le plan comptable SYSCOHADA (plusieurs centaines de comptes).
+  await page.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: REMOTE ? 600000 : 60000 })
+    .catch(async e => { throw new Error(e.message + " | écran : " + await page.evaluate(() => [document.getElementById("setupError").textContent, (document.getElementById("dbStatus")||{}).textContent].join(" / "))); });
+  if (dejaInstallee){
+    const n = await page.evaluate(async () => {
+      const garder = new Set(["utilisateurs", "planComptable", "baremeIts", "paieParametres", "societe"]);
+      let n = 0;
+      for (const sec of SECTIONS) for (const m of sec.modules){
+        if (m.readonly || garder.has(m.key)) continue;
+        for (const rec of await getAll(m.key)){ await deleteRecord(m.key, rec.id); n++; }
+      }
+      for (const u of await getAll("utilisateurs")) if (u.login !== "admin"){ await deleteRecord("utilisateurs", u.id); n++; }
+      const soc = (await getAll("societe"))[0];
+      if (soc && soc.dateCloture){ soc.dateCloture = ""; await putRecord("societe", soc); }
+      return n;
+    });
+    console.log("Société de test vidée (" + n + " fiches d'un essai précédent)");
+  }
+  const hookToasts = pg => pg.evaluate(() => { window.__toasts = []; const o = window.toast; window.toast = m => { window.__toasts.push(m); o(m); }; });
+  await hookToasts(page);
+  // Attend le message de fin d'une action (le serveur distant peut mettre plusieurs secondes).
+  async function afterToast(pg, action){
+    const n = await pg.evaluate(() => window.__toasts.length);
+    await action();
+    await pg.waitForFunction(n => window.__toasts.length > n, n, { timeout: 120000 });
+  }
   const lastToast = () => page.evaluate(() => window.__toasts[window.__toasts.length - 1]);
 
   const ev = (fn, arg) => page.evaluate(fn, arg);
@@ -75,8 +109,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
       if (tag === "SELECT") await page.selectOption("#f_" + k, String(v)); else await page.fill("#f_" + k, String(v));
     }
     if (lignes) await lignes();
-    await page.click("#overlay .modal-actions .btn.gold");
-    await page.waitForTimeout(400);
+    await afterToast(page, () => page.click("#overlay .modal-actions .btn.gold"));
   }
 
   console.log("Données de base");
@@ -197,10 +230,10 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   const rows = page.locator("#pieceEditor tbody tr");
   await rows.nth(0).locator("td:nth-child(1) input").fill("6222"); await rows.nth(0).locator("td:nth-child(3) input").fill("150000");
   await rows.nth(1).locator("td:nth-child(1) input").fill("521"); await rows.nth(1).locator("td:nth-child(4) input").fill("140000");
-  await page.click("#overlay .modal-actions .btn.gold"); await page.waitForTimeout(200);
+  await afterToast(page, () => page.click("#overlay .modal-actions .btn.gold"));
   assert.match(await lastToast(), /déséquilibrée/);
   await rows.nth(1).locator("td:nth-child(4) input").fill("150000");
-  await page.click("#overlay .modal-actions .btn.gold"); await page.waitForTimeout(500);
+  await afterToast(page, () => page.click("#overlay .modal-actions .btn.gold"));
   assert.equal(await ev(async () => (await getAll("journal")).filter(e => e.piece === "OD-LOYER-03").length), 2);
   await assertEquilibre("après pièce multi-lignes");
   const [popup] = await Promise.all([page.waitForEvent("popup"), ev(async () => printReleveClient((await getAll("clients"))[0].id))]);
@@ -242,7 +275,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   console.log("Recherche : saisie continue");
   await ev(() => renderRoute("clients")); await page.waitForTimeout(200);
   await page.click("#content .search-box"); await page.keyboard.type("Alp", { delay: 80 });
-  await page.waitForTimeout(300);
+  await page.waitForFunction(() => document.querySelectorAll("#content tbody tr").length === 1, null, { timeout: 30000 });
   assert.equal(await page.inputValue("#content .search-box"), "Alp");
   ok("recherche « Alp » saisie sans perte du curseur");
 
@@ -265,17 +298,18 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   await p2.fill("#loginUser", "compta"); await p2.fill("#loginPass", "Compta-Init-2026"); await p2.click("#loginCard button");
   await p2.waitForSelector("#setupCard", { state: "visible" });
   await p2.fill("#setupPass", "Compta-Perso-2026"); await p2.fill("#setupPass2", "Compta-Perso-2026"); await p2.click("#setupCard button");
-  await p2.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: 60000 })
+  await p2.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: REMOTE ? 600000 : 60000 })
     .catch(async e => { throw new Error(e.message + " | écran : " + await p2.evaluate(() => [document.getElementById("setupError").textContent, document.getElementById("loginError").textContent, (document.getElementById("dbStatus")||{}).textContent].join(" / "))); });
+  await hookToasts(p2);
   await p2.evaluate(() => openForm("factures")); await p2.waitForSelector("#overlay.show");
   await p2.fill("#f_date", "2026-03-20"); await p2.selectOption("#f_client", "Client Alpha");
   await p2.selectOption("#lignesEditor select", "Pose");
-  await p2.click("#overlay .modal-actions .btn.gold"); await p2.waitForTimeout(500);
+  await afterToast(p2, () => p2.click("#overlay .modal-actions .btn.gold"));
   const f3 = await p2.evaluate(async () => (await getAll("factures")).slice(-1)[0]);
   const n3 = await p2.evaluate(async n => (await getAll("journal")).filter(e => e.piece === n).length, f3.numero);
   await p2.evaluate(id => openForm("factures", id), f3.id); await p2.waitForSelector("#overlay.show");
   await p2.fill("#f_montantRegle", "1000");
-  await p2.click("#overlay .modal-actions .btn.gold"); await p2.waitForTimeout(600);
+  await afterToast(p2, () => p2.click("#overlay .modal-actions .btn.gold"));
   const n3b = await p2.evaluate(async n => (await getAll("journal")).filter(e => e.piece === n).length, f3.numero);
   assert.equal(n3b, n3 + 2, "règlement ajouté, rien en double");
   const st3 = await p2.evaluate(async () => { const j = await getAll("journal"); return Math.abs(j.reduce((s,e)=>s+e.debit-e.credit,0)); });

@@ -398,7 +398,7 @@ function kgp_route(): void {
     $slug = strtolower($first);
     $societe = (preg_match(KGP_SLUG_RE, $slug) && !in_array($slug, KGP_RESERVED, true)) ? kgp_find_societe($slug) : null;
     if (!$societe){
-      if ($isApi($rest)){ kgp_send(['error' => "Société inconnue : vérifiez l'adresse."], 404); return; }
+      if ($isApi($rest) || $first === 'api'){ kgp_send(['error' => "Société inconnue : vérifiez l'adresse."], 404); return; }
       kgp_html_page('accueil.html', 404, ['BASE' => $base]);
       return;
     }

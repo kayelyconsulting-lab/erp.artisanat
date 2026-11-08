@@ -313,6 +313,18 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
       return send(res, 200, { user: publicUser(updated) });
     }
 
+    // Envoi groupé (ex. plan comptable au premier accès) : chaque fiche est vérifiée comme un PUT.
+    const lot = /^\/api\/data\/([A-Za-z_]+)\/lot$/.exec(p);
+    if (lot && m === "PUT"){
+      const items = await readBody(req);
+      if (!Array.isArray(items) || items.length > 1000) throw new ValidationError(["Lot invalide (1 000 fiches au maximum)"]);
+      const ids = [];
+      items.forEach((it, i) => {
+        try { ids.push(put(user, lot[1], it, session.hash)); }
+        catch (e){ if (e instanceof ValidationError) e.message = `Fiche ${i + 1} : ${e.message}`; throw e; }
+      });
+      return send(res, 200, { ids });
+    }
     const dm = /^\/api\/data\/([A-Za-z_]+)(?:\/(\d+))?$/.exec(p);
     if (dm){
       const [, store, idStr] = dm;

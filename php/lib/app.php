@@ -482,6 +482,18 @@ function kgp_handle_api(string $p): void {
       return;
     }
 
+    // Envoi groupé (ex. plan comptable au premier accès) : chaque fiche est vérifiée comme un PUT.
+    if ($method === 'PUT' && preg_match('#^/api/data/([A-Za-z_]+)/lot$#', $p, $m)){
+      $items = kgp_body();
+      if (!kgp_is_list($items) || count($items) > 1000) throw new ValidationError(['Lot invalide (1 000 fiches au maximum)']);
+      $ids = [];
+      foreach ($items as $i => $it){
+        try { $ids[] = kgp_save($user, $m[1], $it, $session['hash']); }
+        catch (ValidationError $e){ throw new ValidationError(array_map(fn($x) => 'Fiche ' . ($i + 1) . ' : ' . $x, $e->errors)); }
+      }
+      kgp_send(['ids' => $ids]);
+      return;
+    }
     if (preg_match('#^/api/data/([A-Za-z_]+)(?:/(\d+))?$#', $p, $m)){
       $store = $m[1]; $idStr = $m[2] ?? '';
       if ($method === 'GET' && $idStr === ''){ kgp_send(kgp_list($user, $store)); return; }

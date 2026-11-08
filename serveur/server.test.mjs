@@ -171,6 +171,18 @@ test("clôture de période", async () => {
   assert.equal((await admin("PUT", "/api/data/societe", { ...soc, raison: "Kayely SARL", dateCloture: "" })).status, 200);
 });
 
+test("envoi groupé (lot)", async () => {
+  const r = await admin("PUT", "/api/data/planComptable/lot", [
+    { classe: "6", compte: "6999", intitule: "Test lot A", sens: "Débit" },
+    { classe: "6", compte: "6998", intitule: "Test lot B", sens: "Débit" }]);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.ids.length, 2);
+  const bad = await admin("PUT", "/api/data/planComptable/lot", [{ classe: "6", compte: "6997", intitule: "ok" }, { classe: "X", compte: "", intitule: "" }]);
+  assert.equal(bad.status, 422);
+  assert.match(bad.data.error, /Fiche 2/);
+  assert.equal((await admin("PUT", "/api/data/planComptable/lot", { pas: "une liste" })).status, 422);
+});
+
 test("cookie de session protégé", async () => {
   const r = await client()("POST", "/api/login", { login: "admin", password: PASS });
   const set = r.headers.get("set-cookie");
