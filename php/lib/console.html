@@ -75,6 +75,7 @@
 
   <!-- Gestion des sociétés -->
   <div class="hidden" id="mainView">
+    <div class="msg" id="envMsg"></div>
     <form class="card" id="createForm">
       <h2>Nouvelle société</h2>
       <p class="sub">Chaque société reçoit sa propre base de données, séparée des autres, et sa propre adresse.</p>
@@ -179,7 +180,17 @@ async function boot(){
   }catch(e){ document.querySelector("main").textContent = "Serveur injoignable : " + e.message; }
 }
 
+async function verifierEnvironnement(){
+  try{
+    const e = await api("GET", "environnement");
+    const alertes = [];
+    if (!e.phpCorrectifs) alertes.push("PHP " + e.php + " ne reçoit plus de correctifs de sécurité : dans LWS Panel > Configuration php, choisissez PHP 8.3 (ou plus récent).");
+    if (!e.https) alertes.push("La console n'est pas ouverte en HTTPS : activez le certificat SSL du domaine.");
+    msg("envMsg", alertes.join(" "));
+  }catch(_){}
+}
 async function refresh(){
+  verifierEnvironnement();
   const rows = await api("GET", "societes");
   societesCache = rows;
   const tb = $("list"); tb.innerHTML = "";

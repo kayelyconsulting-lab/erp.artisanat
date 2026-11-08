@@ -254,13 +254,13 @@ function kgp_current_session(): ?array {
 
 /* ---------------- limitation des tentatives ---------------- */
 
-function kgp_login_blocked(string $k): bool {
+function kgp_login_blocked(string $k, int $max = KGP_LOGIN_MAX_FAILS): bool {
   $k = kgp_cle_anonyme($k);
   $st = kgp_db()->prepare('SELECT n, first FROM login_fails WHERE k = ?'); $st->execute([$k]);
   $r = $st->fetch(PDO::FETCH_ASSOC); $st->closeCursor();
   if (!$r) return false;
   if (time() - (int)$r['first'] > KGP_LOGIN_WINDOW){ kgp_db()->prepare('DELETE FROM login_fails WHERE k = ?')->execute([$k]); return false; }
-  return (int)$r['n'] >= KGP_LOGIN_MAX_FAILS;
+  return (int)$r['n'] >= $max;
 }
 function kgp_login_fail(string $k): void {
   $k = kgp_cle_anonyme($k);
@@ -278,10 +278,23 @@ function kgp_login_reset(string $k): void { $k = kgp_cle_anonyme($k); kgp_db()->
 
 function kgp_is_admin(array $u): bool { return ($u['role'] ?? '') === KGP_ADMIN; }
 function kgp_is_gerant_or_admin(array $u): bool { return in_array($u['role'] ?? '', [KGP_ADMIN, KGP_GERANT], true); }
-function kgp_assert_can_write(array $user, array $mod): void {
+/* Caissier(e) : pas d'accès aux données du personnel (RH, paie), pas de modification du
+   plan comptable ni des immobilisations ; dans le journal, seulement les écritures générées
+   par ses propres pièces (champ « source »). */
+const KGP_CAISSIER = 'Caissier(e)';
+const KGP_SECTIONS_CONFIDENTIELLES = ['rh', 'paie'];
+const KGP_ECRITURE_INTERDITE_CAISSIER = ['planComptable', 'immobilisations'];
+function kgp_peut_lire(array $user, array $mod): bool {
+  return !(($user['role'] ?? '') === KGP_CAISSIER && in_array($mod['section'] ?? '', KGP_SECTIONS_CONFIDENTIELLES, true));
+}
+function kgp_assert_can_write(array $user, array $mod, $input = null): void {
   if ($mod['key'] === 'utilisateurs' || !empty($mod['adminOnly'])) $ok = kgp_is_admin($user);
   elseif (($mod['section'] ?? '') === 'parametres') $ok = kgp_is_gerant_or_admin($user);
   else $ok = true;
+  if ($ok && ($user['role'] ?? '') === KGP_CAISSIER){
+    if (in_array($mod['section'] ?? '', KGP_SECTIONS_CONFIDENTIELLES, true) || in_array($mod['key'], KGP_ECRITURE_INTERDITE_CAISSIER, true)) $ok = false;
+    if ($mod['key'] === 'journal' && !(is_array($input) && is_string($input['source'] ?? null) && $input['source'] !== '')) $ok = false;
+  }
   if (!$ok) throw new HttpError(403, 'Action non autorisée pour votre rôle.');
 }
 
@@ -313,6 +326,7 @@ function kgp_assert_open(string $store, ?array $r): void {
 
 function kgp_list(array $user, string $store): array {
   $mod = kgp_module($store);
+  if (!kgp_peut_lire($user, $mod)) throw new HttpError(403, 'Accès non autorisé pour votre rôle.');
   if ($mod['key'] === 'utilisateurs'){
     $all = array_map('kgp_public_user', kgp_all('utilisateurs'));
     return kgp_is_gerant_or_admin($user) ? $all : array_values(array_filter($all, fn($u) => $u['id'] === $user['id']));
@@ -322,7 +336,7 @@ function kgp_list(array $user, string $store): array {
 
 function kgp_save(array $user, string $store, $input, string $sessionHash): int {
   $mod = kgp_module($store);
-  kgp_assert_can_write($user, $mod);
+  kgp_assert_can_write($user, $mod, $input);
   if (!kgp_is_object($input)) throw new ValidationError(['Enregistrement invalide']);
 
   return kgp_transaction(function () use ($user, $mod, $input, $sessionHash){
@@ -390,7 +404,7 @@ function kgp_remove(array $user, string $store, int $id): bool {
     $rec = kgp_get($mod['key'], $id);
     $genere = $rec && ((is_string($rec['source'] ?? null) && $rec['source'] !== '') || ($rec['auto'] ?? null) === true);
     if (!$genere || $mod['key'] === 'utilisateurs') throw new HttpError(403, "Suppression réservée à l'administrateur.");
-    kgp_assert_can_write($user, $mod);
+    kgp_assert_can_write($user, $mod, $rec);
   }
   return kgp_transaction(function () use ($user, $mod, $id){
     if ($mod['key'] === 'utilisateurs'){
@@ -519,11 +533,16 @@ function kgp_handle_api(string $p): void {
     if ($p === '/api/login' && $method === 'POST'){
       $b = kgp_body();
       $login = (string)($b['login'] ?? ''); $password = (string)($b['password'] ?? '');
-      $key = ($_SERVER['REMOTE_ADDR'] ?? '') . '|' . kgp_lower($login);
-      if (kgp_login_blocked($key)) throw new HttpError(429, 'Trop de tentatives : réessayez dans 15 minutes.');
+      $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+      $key = $ip . '|' . kgp_lower($login); $keyIp = 'ip|' . $ip;
       $user = kgp_find_by_login($login);
+      // Limite par compte (5 échecs) et globale par adresse IP (30 échecs, tous identifiants confondus).
+      if (kgp_login_blocked($key) || kgp_login_blocked($keyIp, 30)){
+        kgp_audit($user['id'] ?? null, 'login-bloque');
+        throw new HttpError(429, 'Trop de tentatives : réessayez dans 15 minutes.');
+      }
       $ok = kgp_verify_password($password, $user['motDePasseHash'] ?? '') && $user;
-      if (!$ok){ kgp_login_fail($key); throw new HttpError(401, 'Identifiant ou code secret incorrect.'); }
+      if (!$ok){ kgp_login_fail($key); kgp_login_fail($keyIp); kgp_audit($user['id'] ?? null, 'login-echec'); throw new HttpError(401, 'Identifiant ou code secret incorrect.'); }
       if (($user['statut'] ?? 'Actif') !== 'Actif') throw new HttpError(403, "Ce compte est désactivé. Contactez l'administrateur.");
       if (kgp_is_expired($user)) throw new HttpError(403, "Votre durée d'accès a expiré. Contactez l'administrateur.");
       kgp_login_reset($key);
@@ -552,6 +571,18 @@ function kgp_handle_api(string $p): void {
     }
 
     if ($p === '/api/me' && $method === 'GET'){ kgp_send(['user' => kgp_public_user($user)]); return; }
+
+    // Journal d'activité (administrateur) : qui a fait quoi, sans le contenu des fiches.
+    if ($p === '/api/audit' && $method === 'GET'){
+      if (!kgp_is_admin($user)) throw new HttpError(403, "Journal d'activité réservé à l'administrateur.");
+      $logins = [];
+      foreach (kgp_all('utilisateurs') as $u) $logins[$u['id']] = $u['login'] ?? '';
+      $rows = kgp_db()->query('SELECT at, user_id, action, store, record_id FROM audit ORDER BY rowid DESC LIMIT 500')->fetchAll(PDO::FETCH_ASSOC);
+      kgp_send(array_map(fn($r) => ['date' => gmdate('Y-m-d\TH:i:s\Z', (int)$r['at']),
+        'utilisateur' => $r['user_id'] ? ($logins[(int)$r['user_id']] ?? '#' . $r['user_id']) : '',
+        'action' => $r['action'], 'module' => $r['store'] ?? '', 'fiche' => $r['record_id'] !== null ? (int)$r['record_id'] : null], $rows));
+      return;
+    }
 
     if ($p === '/api/password' && $method === 'POST'){
       $b = kgp_body();

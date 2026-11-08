@@ -111,8 +111,16 @@ test("droits par rôle", async () => {
   // écriture générée automatiquement (source) : remplaçable par un rôle non administrateur
   const gen = await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0, source: "treso_caisse#1" });
   assert.equal(gen.status, 200);
-  const manuelle = await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0 });
+  // écriture saisie à la main : interdite au Caissier (OWASP A01), suppression aussi
+  assert.equal((await caisse("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0 })).status, 403);
+  const manuelle = await admin("PUT", "/api/data/journal", { date: "2026-01-10", compte: "571", debit: 10, credit: 0 });
   assert.equal((await caisse("DELETE", "/api/data/journal/" + manuelle.data.id)).status, 403);
+  // données du personnel et plan comptable : hors de portée du Caissier
+  assert.equal((await caisse("GET", "/api/data/rhEmployes")).status, 403);
+  assert.equal((await caisse("GET", "/api/data/paieCalcul")).status, 403);
+  assert.equal((await caisse("PUT", "/api/data/rhEmployes", { nom: "X", salaireBase: 1 })).status, 403);
+  assert.equal((await caisse("PUT", "/api/data/planComptable", { classe: "6", compte: "6990", intitule: "Pirate" })).status, 403);
+  assert.equal((await caisse("GET", "/api/audit")).status, 403);
   assert.equal((await caisse("DELETE", "/api/data/journal/" + gen.data.id)).status, 200);
   const users = (await caisse("GET", "/api/data/utilisateurs")).data;
   assert.deepEqual(users.map(u => u.login), ["caisse"]);
@@ -267,4 +275,30 @@ test("bibliothèques hébergées avec l'application (aucun CDN)", async () => {
     const r = await brut(chemin);
     assert.ok(r.status >= 400 || !/import |<\?php|xlsx 0\.|Apache License/.test(r.corps), "accès refusé : " + chemin + " (" + r.status + ")");
   }
+});
+
+test("journal d'activité : connexions, échecs, actions (sans contenu)", async () => {
+  await client()("POST", "/api/login", { login: "admin", password: "mauvais-code" });
+  const r = await admin("GET", "/api/audit");
+  assert.equal(r.status, 200);
+  const actions = r.data.map(l => l.action);
+  for (const a of ["login", "login-echec", "create", "update"]) assert.ok(actions.includes(a), "action tracée : " + a);
+  const echec = r.data.find(l => l.action === "login-echec" && l.utilisateur === "admin");
+  assert.ok(echec, "échec rattaché au compte visé");
+  for (const l of r.data) assert.deepEqual(Object.keys(l).sort(), ["action", "date", "fiche", "module", "utilisateur"], "aucun contenu de fiche");
+});
+
+// À garder en dernier : bloque l'adresse IP des tests.
+test("limite globale par adresse IP (essais sur de nombreux comptes)", async () => {
+  const c = client();
+  // Les tests précédents ont déjà compté des échecs pour cette adresse : le blocage arrive
+  // au plus tard au 31e échec, quels que soient les identifiants essayés.
+  let essais = 0, statut = 401;
+  while (statut === 401 && essais < 40){ statut = (await c("POST", "/api/login", { login: "inconnu" + essais, password: "x" })).status; essais++; }
+  assert.equal(statut, 429, "blocage après " + essais + " essais");
+  assert.ok(essais <= 31);
+  // 31e essai, autre identifiant : bloqué même avec un compte et un code valides
+  assert.equal((await c("POST", "/api/login", { login: "admin", password: PASS })).status, 429);
+  const r = await admin("GET", "/api/audit");          // la session déjà ouverte reste utilisable
+  assert.ok(r.data.some(l => l.action === "login-bloque"), "blocage tracé");
 });

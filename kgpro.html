@@ -462,6 +462,7 @@ const SECTIONS = [
           {k:"statut",l:"Statut",t:"select",opts:["Actif","Inactif"]},
           {k:"dateExpiration",l:"Accès valable jusqu'au (laisser vide = illimité)",t:"date"} ],
         cols:["nom","prenom","login","role","statut","dateExpiration"] },
+      { key:"journalActivite", adminOnly:true, label:"Journal d'activité", readonly:"audit" },
       { key:"taxes", adminOnly:true, label:"Taxes", fields:[
           {k:"libelle",l:"Libellé",t:"text",req:1},
           {k:"type",l:"Type",t:"select",opts:["TVA","IS","CNPS","Autre"]},
@@ -1495,7 +1496,39 @@ function getAll(store){
     r.onerror = reject;
   });
 }
+/* Mode local (sans serveur) : les codes secrets sont hachés (PBKDF2-SHA256, sel aléatoire),
+   jamais conservés en clair dans la base du navigateur. */
+const PBKDF2_ITERATIONS = 210000;
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const deB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function deriverCode(code, sel, iterations){
+  const cle = await crypto.subtle.importKey("raw", new TextEncoder().encode(code), "PBKDF2", false, ["deriveBits"]);
+  return crypto.subtle.deriveBits({ name:"PBKDF2", hash:"SHA-256", salt:sel, iterations }, cle, 256);
+}
+async function hacherCodeLocal(code){
+  const sel = crypto.getRandomValues(new Uint8Array(16));
+  return "pbkdf2$" + PBKDF2_ITERATIONS + "$" + b64(sel) + "$" + b64(await deriverCode(code, sel, PBKDF2_ITERATIONS));
+}
+async function verifierCodeLocal(code, empreinte){
+  const [type, it, sel, attendu] = String(empreinte || "").split("$");
+  if (type !== "pbkdf2") return false;
+  const obtenu = b64(await deriverCode(code, deB64(sel), Number(it)));
+  let diff = obtenu.length ^ attendu.length;
+  for (let i = 0; i < Math.min(obtenu.length, attendu.length); i++) diff |= obtenu.charCodeAt(i) ^ attendu.charCodeAt(i);
+  return diff === 0;
+}
+async function putUtilisateurLocal(record){
+  const r = { ...record };
+  if (r.motDePasse && window.crypto && crypto.subtle){ r.motDePasseHash = await hacherCodeLocal(r.motDePasse); delete r.motDePasse; }
+  else if (!r.motDePasse) delete r.motDePasse;        // code inchangé : l'empreinte existante est conservée
+  return putRecordLocal("utilisateurs", r);
+}
+
 function putRecord(store, record){
+  if (!KGP_SERVER && store === "utilisateurs") return putUtilisateurLocal(record);
+  return putRecordLocal(store, record);
+}
+function putRecordLocal(store, record){
   if (KGP_SERVER){
     return kgpApi("PUT", "/api/data/" + encodeURIComponent(store), record)
       .then(r => { notifyDataChanged(); return r.id; });
@@ -1568,6 +1601,7 @@ function buildNav(){
 
   SECTIONS.forEach(sec => {
     if (sec.id === "parametres" && !isGerantOrAdmin()) return;
+    if (estCaissier() && SECTIONS_CONFIDENTIELLES.includes(sec.id)) return;
     const visibleModules = sec.id === "parametres" ? sec.modules.filter(canAccessModule) : sec.modules;
     if (sec.id === "parametres" && visibleModules.length === 0) return;
     const wrap = document.createElement("div");
@@ -1622,8 +1656,8 @@ async function renderRoute(moduleKey){
   }
   const entry = MODULE_INDEX[moduleKey];
   if (!entry){ return; }
-  if (entry.sec.id === "parametres" && !canAccessModule(entry.mod)){
-    toast("Accès réservé à l'administrateur");
+  if ((entry.sec.id === "parametres" && !canAccessModule(entry.mod)) || (estCaissier() && SECTIONS_CONFIDENTIELLES.includes(entry.sec.id))){
+    toast("Accès non autorisé pour votre rôle");
     currentModule = "accueil";
     highlightNav(null);
     document.getElementById("crumb").innerHTML = "<b>Accueil</b>";
@@ -1646,6 +1680,7 @@ async function renderRoute(moduleKey){
   if (entry.mod.readonly === "tva") return renderDeclarationTva();
   if (entry.mod.readonly === "soldesTreso") return renderSoldesTresorerie();
   if (entry.mod.readonly === "liasse") return renderLiasse();
+  if (entry.mod.readonly === "audit") return renderJournalActivite();
   if (entry.mod.readonly === "rapprochementAuto") return renderRapprochementAuto();
   if (entry.mod.single) return renderSingleForm(entry.mod);
   return renderModuleList(entry.mod);
@@ -1814,7 +1849,7 @@ async function getAllSafe(store){
   catch(e){
     // En mode serveur, une lecture refusée ne doit pas passer inaperçue (sinon stocks et
     // soldes s'afficheraient à 0) : on prévient l'utilisateur.
-    if (KGP_SERVER && e && e.status && e.status !== 401 && e.status !== 404) toast("Lecture impossible ("+store+") : "+e.message);
+    if (KGP_SERVER && e && e.status && ![401, 403, 404].includes(e.status)) toast("Lecture impossible ("+store+") : "+e.message);
     return [];
   }
 }
@@ -4506,6 +4541,32 @@ async function renderLiasse(action){
 window.renderLiasse = renderLiasse;
 
 /* ---------------------------------------------------------
+   JOURNAL D'ACTIVITÉ (administrateur) — connexions, échecs, créations, modifications,
+   suppressions : qui, quand, quel module, quelle fiche (jamais le contenu).
+   --------------------------------------------------------- */
+const LIBELLES_ACTIONS = { "login":"Connexion", "login-echec":"Échec de connexion", "login-bloque":"Connexion bloquée (trop d'essais)",
+  "create":"Création", "update":"Modification", "delete":"Suppression", "password":"Changement de code secret", "setup":"Création de l'administrateur",
+  "reset-console":"Code provisoire (console)" };
+async function renderJournalActivite(){
+  const c = document.getElementById("content");
+  if (!KGP_SERVER){
+    c.innerHTML = `<h1 class="page-title">Journal d'activité</h1><div class="table-wrap"><div class="empty">Disponible quand l'application est utilisée sur le serveur.</div></div>`;
+    return;
+  }
+  let lignes = [];
+  try{ lignes = await kgpApi("GET", "/api/audit"); }catch(e){ toast(e.message); return; }
+  const modules = Object.fromEntries(Object.entries(MODULE_INDEX).map(([k, v]) => [k, v.mod.label]));
+  const echecs = lignes.filter(l => l.action === "login-echec" || l.action === "login-bloque").length;
+  c.innerHTML = `<h1 class="page-title">Journal d'activité</h1>
+    <div class="page-sub">500 dernières actions — ${echecs} échec(s) ou blocage(s) de connexion. Le contenu des fiches n'est jamais enregistré.</div>
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Module</th><th>Fiche</th></tr></thead><tbody>
+    ${lignes.map(l => `<tr><td>${esc(new Date(l.date).toLocaleString("fr-FR"))}</td><td>${esc(l.utilisateur || "—")}</td>
+      <td>${/echec|bloque/.test(l.action) ? `<span class="badge danger">${esc(LIBELLES_ACTIONS[l.action] || l.action)}</span>` : esc(LIBELLES_ACTIONS[l.action] || l.action)}</td>
+      <td>${esc(modules[l.module] || l.module || "")}</td><td>${l.fiche ?? ""}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">Aucune action</td></tr>`}
+    </tbody></table></div>`;
+}
+
+/* ---------------------------------------------------------
    PÉRIODE COMPTABLE (filtres du / au), utilitaires
    --------------------------------------------------------- */
 let periodeCompta = null;
@@ -5686,6 +5747,9 @@ const SESSION_KEY = "kayely_erp_session";
 let currentUser = null;
 
 function isAdmin(){ return !!currentUser && currentUser.role === "Administrateur"; }
+/* Caissier(e) : pas d'accès aux modules RH et Paie (données personnelles) — imposé aussi par le serveur. */
+const SECTIONS_CONFIDENTIELLES = ["rh", "paie"];
+function estCaissier(){ return !!currentUser && currentUser.role === "Caissier(e)"; }
 function isGerantOrAdmin(){ return !!currentUser && (currentUser.role === "Administrateur" || currentUser.role === "Gérant"); }
 function canAccessModule(mod){
   if (mod.adminOnly) return isAdmin();
@@ -5832,7 +5896,10 @@ async function attemptLogin(){
   const users = await getAllSafe("utilisateurs");
   const user = users.find(u => (u.login||"").toLowerCase() === loginVal.toLowerCase());
 
-  if (!user || user.motDePasse !== passVal){
+  // Code haché (PBKDF2) ; ancien code en clair accepté une dernière fois puis haché.
+  const codeOk = !!user && (user.motDePasseHash ? await verifierCodeLocal(passVal, user.motDePasseHash) : user.motDePasse === passVal);
+  if (codeOk && !user.motDePasseHash) await putRecord("utilisateurs", { ...user, motDePasse: passVal });
+  if (!codeOk){
     errBox.textContent = "Identifiant ou code secret incorrect.";
     errBox.classList.add("show");
     return;

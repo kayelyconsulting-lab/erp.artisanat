@@ -38,6 +38,9 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
   const schema = loadSchema(appFile);
   const db = openDatabase(dbFile);
   const limiter = createLoginLimiter();
+  // Limite globale par adresse IP, tous identifiants confondus (essais d'un mot de passe sur
+  // de nombreux comptes) : 30 échecs en 15 minutes.
+  const limiterIp = createLoginLimiter({ max: 30 });
   const appHtml = () => fs.readFileSync(appFile, "utf8")
     .replace(/src="assets\//g, 'src="/assets/')
     .replace("<head>", '<head>\n<script>window.KGP_SERVER = true; window.KGP_ASSETS = "/assets/";</script>');
@@ -109,9 +112,20 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
     if (!mod) throw new HttpError(404, "Module inconnu");
     return mod;
   }
-  function assertCanWrite(user, mod){
-    const ok = mod.key === "utilisateurs" || mod.adminOnly ? isAdmin(user)
+  // Caissier(e) : pas d'accès aux données du personnel (RH, paie), pas de modification du
+  // plan comptable ni des immobilisations ; dans le journal, seulement les écritures générées
+  // par ses propres pièces (factures, tickets, règlements : champ « source »).
+  const CAISSIER = "Caissier(e)";
+  const SECTIONS_CONFIDENTIELLES = new Set(["rh", "paie"]);
+  const ECRITURE_INTERDITE_CAISSIER = new Set(["planComptable", "immobilisations"]);
+  const peutLire = (user, mod) => !(user.role === CAISSIER && SECTIONS_CONFIDENTIELLES.has(mod.section));
+  function assertCanWrite(user, mod, input){
+    let ok = mod.key === "utilisateurs" || mod.adminOnly ? isAdmin(user)
       : mod.section === "parametres" ? isGerantOrAdmin(user) : true;
+    if (ok && user.role === CAISSIER){
+      if (SECTIONS_CONFIDENTIELLES.has(mod.section) || ECRITURE_INTERDITE_CAISSIER.has(mod.key)) ok = false;
+      if (mod.key === "journal" && !(input && typeof input.source === "string" && input.source)) ok = false;
+    }
     if (!ok) throw new HttpError(403, "Action non autorisée pour votre rôle.");
   }
 
@@ -138,6 +152,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
   /* ---------- lecture / écriture des données ---------- */
   function list(user, store){
     const mod = moduleOr404(store);
+    if (!peutLire(user, mod)) throw new HttpError(403, "Accès non autorisé pour votre rôle.");
     if (mod.key === "utilisateurs"){
       const all = db.all("utilisateurs").map(publicUser);
       return isGerantOrAdmin(user) ? all : all.filter(u => u.id === user.id);
@@ -152,7 +167,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
 
   function put(user, store, input, sessionHash = ""){
     const mod = moduleOr404(store);
-    assertCanWrite(user, mod);
+    assertCanWrite(user, mod, input);
     if (input === null || typeof input !== "object" || Array.isArray(input)) throw new ValidationError(["Enregistrement invalide"]);
 
     return db.transaction(() => {
@@ -216,7 +231,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
       const rec = db.get(mod.key, id);
       const genere = rec && (typeof rec.source === "string" && rec.source !== "" || rec.auto === true);
       if (!genere || mod.key === "utilisateurs") throw new HttpError(403, "Suppression réservée à l'administrateur.");
-      assertCanWrite(user, mod);
+      assertCanWrite(user, mod, rec);
     }
     return db.transaction(() => {
       if (mod.key === "utilisateurs"){
@@ -336,11 +351,15 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
 
     if (p === "/api/login" && m === "POST"){
       const { login, password } = await readBody(req);
-      const key = (req.socket.remoteAddress || "") + "|" + String(login || "").toLowerCase();
-      if (limiter.blocked(key)) throw new HttpError(429, "Trop de tentatives : réessayez dans 15 minutes.");
+      const ip = req.socket.remoteAddress || "";
+      const key = ip + "|" + String(login || "").toLowerCase(), keyIp = "ip|" + ip;
       const user = findByLogin(login);
+      if (limiter.blocked(key) || limiterIp.blocked(keyIp)){
+        db.audit(user ? user.id : null, "login-bloque", null, null);
+        throw new HttpError(429, "Trop de tentatives : réessayez dans 15 minutes.");
+      }
       const ok = verifyPassword(String(password || ""), user ? user.motDePasseHash : DUMMY_HASH) && !!user;
-      if (!ok){ limiter.fail(key); throw new HttpError(401, "Identifiant ou code secret incorrect."); }
+      if (!ok){ limiter.fail(key); limiterIp.fail(keyIp); db.audit(user ? user.id : null, "login-echec", null, null); throw new HttpError(401, "Identifiant ou code secret incorrect."); }
       if ((user.statut || "Actif") !== "Actif") throw new HttpError(403, "Ce compte est désactivé. Contactez l'administrateur.");
       if (isExpired(user)) throw new HttpError(403, "Votre durée d'accès a expiré. Contactez l'administrateur.");
       limiter.reset(key);
@@ -364,6 +383,15 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
     const user = session.user;
 
     if (p === "/api/me" && m === "GET") return send(res, 200, { user: publicUser(user) });
+
+    // Journal d'activité (administrateur) : qui a fait quoi, sans le contenu des fiches.
+    if (p === "/api/audit" && m === "GET"){
+      if (!isAdmin(user)) throw new HttpError(403, "Journal d'activité réservé à l'administrateur.");
+      const logins = Object.fromEntries(db.all("utilisateurs").map(u => [u.id, u.login]));
+      const rows = db.raw.prepare("SELECT at, user_id, action, store, record_id FROM audit ORDER BY rowid DESC LIMIT 500").all();
+      return send(res, 200, rows.map(r => ({ date: new Date(r.at).toISOString(), utilisateur: r.user_id ? (logins[r.user_id] || "#" + r.user_id) : "",
+        action: r.action, module: r.store || "", fiche: r.record_id || null })));
+    }
 
     if (p === "/api/password" && m === "POST"){
       const { current, password } = await readBody(req);

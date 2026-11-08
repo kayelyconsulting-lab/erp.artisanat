@@ -195,6 +195,7 @@ function kgp_handle_console_api(string $p, string $base): void {
       if (kgp_console_blocked($key)) throw new HttpError(429, 'Trop de tentatives : réessayez dans 15 minutes.');
       if (!password_verify((string)($b['password'] ?? ''), (string)kgp_config_get('console_password'))){
         kgp_console_fail($key);
+        kgp_console_audit('login-echec');
         throw new HttpError(401, 'Mot de passe incorrect.');
       }
       kgp_console_audit('login');
@@ -213,6 +214,12 @@ function kgp_handle_console_api(string $p, string $base): void {
     $session = kgp_console_logged_in();
     if (!$session) throw new HttpError(401, 'Session expirée : reconnectez-vous.');
 
+    // Environnement (visible seulement une fois connecté) : alerte si PHP n'a plus de correctifs.
+    if ($p === '/api/environnement' && $method === 'GET'){
+      kgp_send(['php' => PHP_VERSION, 'phpCorrectifs' => version_compare(PHP_VERSION, '8.2.0', '>='),
+        'sqlite' => kgp_platform_db()->query('select sqlite_version()')->fetchColumn(), 'sodium' => kgp_sodium_ok(), 'https' => kgp_is_https()]);
+      return;
+    }
     if ($p === '/api/password' && $method === 'POST'){
       $b = kgp_body();
       if (!password_verify((string)($b['current'] ?? ''), (string)kgp_config_get('console_password'))) throw new ValidationError(['Mot de passe actuel incorrect.']);
