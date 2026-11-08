@@ -1473,7 +1473,7 @@ async function kgpApi(method, url, body, options){
   try{ data = await res.json(); }catch(e){}
   if (!res.ok){
     const err = new Error((data && data.error)
-      || `Le serveur de l'application ne répond pas à l'adresse ${url} (erreur ${res.status}). Vérifiez l'adresse de l'application dans cPanel.`);
+      || `Le serveur est momentanément indisponible (erreur ${res.status}). Réessayez dans un instant.`);
     err.status = res.status; err.errors = data && data.errors;
     // Session réellement expirée : uniquement si la requête appartenait à la session en cours.
     if (res.status === 401 && currentUser && generation === kgpSessionGeneration && !(options && options.ignore401)){

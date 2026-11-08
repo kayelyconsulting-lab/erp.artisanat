@@ -237,3 +237,10 @@ test("php/lib/schema.json à jour avec kgpro.html", async () => {
   assert.equal(fs.readFileSync(new URL("../php/lib/schema.json", import.meta.url), "utf8"), buildSchemaJson(),
     "Lancez : node outils/generer-schema.mjs");
 });
+
+test("messages de journal nettoyés (Node)", async () => {
+  const { messageSur } = await import("./server.mjs");
+  const m = messageSur("Échec pour jean.kouassi@exemple.ci, tél. 07 07 12 34 56, fichier /home/kayely/donnees/kgpro.sqlite");
+  assert.doesNotMatch(m, /jean\.kouassi|07 07 12|\/home\/kayely/);
+  assert.match(m, /\[email\].*\[numéro\].*\[chemin\]/);
+});

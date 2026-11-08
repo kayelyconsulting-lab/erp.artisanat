@@ -4,6 +4,7 @@
 //
 //   node serveur/server.mjs            (variables : PORT, HOST, KGP_DB_FILE, KGP_APP_FILE)
 import http from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,15 @@ const MAX_BODY = 8 * 1024 * 1024;
 const ADMIN = "Administrateur", GERANT = "Gérant";
 
 class HttpError extends Error { constructor(status, message){ super(message); this.status = status; } }
+
+/* Message de journal sans données personnelles ni chemins (mêmes règles que la version PHP). */
+export function messageSur(m){
+  return String(m || "")
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "[email]")
+    .replace(/(?:[A-Za-z]:)?(?:[\\/][\w.-]+){2,}/g, "[chemin]")
+    .replace(/\b\d[\d .]{6,}\d\b/g, "[numéro]")
+    .replace(/\s+/g, " ").slice(0, 300);
+}
 
 export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":memory:" } = {}){
   const schema = loadSchema(appFile);
@@ -391,8 +401,11 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
     }catch(e){
       if (e instanceof ValidationError) return send(res, 422, { error: e.message, errors: e.errors });
       if (e instanceof HttpError) return send(res, e.status, { error: e.message });
-      console.error(e);
-      return send(res, 500, { error: "Erreur interne du serveur" });
+      // Journal : référence + type + message nettoyé + emplacement, jamais les données saisies.
+      const ref = crypto.randomBytes(4).toString("hex").toUpperCase();
+      const lieu = String(e && e.stack || "").split("\n").find(l => /\.mjs:\d+/.test(l)) || "";
+      console.error(`[KGP ${ref}] ${e && e.name || "Erreur"} : ${messageSur(e && e.message)} ${lieu.trim().replace(/^at /, "@ ").replace(/\(?(?:[A-Za-z]:)?[\\/].*[\\/]/, "(")}`);
+      return send(res, 500, { error: `Erreur interne du serveur (réf. ${ref}). Réessayez ; si le problème persiste, communiquez cette référence à Kayely Group.` });
     }
   }
 

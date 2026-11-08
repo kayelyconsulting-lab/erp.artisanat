@@ -28,6 +28,7 @@ function kgp_platform_db(): PDO {
     CREATE TABLE IF NOT EXISTS console_sessions (token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS console_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, first INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS console_audit (at INTEGER NOT NULL, action TEXT NOT NULL, detail TEXT);
+    DELETE FROM console_fails WHERE length(k) <> 64 OR k GLOB '*[^0-9a-f]*';
     CREATE TABLE IF NOT EXISTS licences (id INTEGER PRIMARY KEY AUTOINCREMENT, structure TEXT NOT NULL, slug TEXT,
       expiration TEXT NOT NULL, cle TEXT NOT NULL, cree_le INTEGER NOT NULL);
   ");
@@ -116,6 +117,7 @@ function kgp_console_start_session(string $base): void {
   kgp_console_cookie($token, 24 * 3600, $base);
 }
 function kgp_console_blocked(string $k): bool {
+  $k = kgp_cle_anonyme($k);
   $st = kgp_platform_db()->prepare('SELECT n, first FROM console_fails WHERE k = ?'); $st->execute([$k]);
   $r = $st->fetch(PDO::FETCH_ASSOC); $st->closeCursor();
   if (!$r) return false;
@@ -123,6 +125,7 @@ function kgp_console_blocked(string $k): bool {
   return (int)$r['n'] >= KGP_LOGIN_MAX_FAILS;
 }
 function kgp_console_fail(string $k): void {
+  $k = kgp_cle_anonyme($k);
   $db = kgp_platform_db();
   $st = $db->prepare('SELECT first FROM console_fails WHERE k = ?'); $st->execute([$k]);
   $first = $st->fetchColumn(); $st->closeCursor();
@@ -290,8 +293,7 @@ function kgp_handle_console_api(string $p, string $base): void {
   } catch (HttpError $e){
     kgp_send(['error' => $e->getMessage()], $e->status);
   } catch (Throwable $e){
-    error_log('[KGP console] ' . $e);
-    kgp_send(['error' => 'Erreur interne du serveur'], 500);
+    kgp_send(['error' => kgp_message_incident(kgp_incident($e, 'console'))], 500);
   }
 }
 function kgp_transaction_platform(callable $fn){
@@ -435,7 +437,6 @@ function kgp_route(): void {
   } catch (HttpError $e){
     kgp_send(['error' => $e->getMessage()], $e->status);
   } catch (Throwable $e){
-    error_log('[KGP] ' . $e);
-    kgp_send(['error' => 'Erreur interne du serveur'], 500);
+    kgp_send(['error' => kgp_message_incident(kgp_incident($e, 'aiguillage'))], 500);
   }
 }

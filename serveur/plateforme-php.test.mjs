@@ -165,3 +165,26 @@ test("mot de passe de la console oublié : réinitialisation par fichier", { ski
   assert.equal((await consoleClient("GET", "/console/api/societes")).data.length, avant, "sociétés conservées");
   assert.equal((await client()("GET", "/alpha/api/status")).status, 200, "sociétés toujours accessibles");
 });
+
+test("journaux et données : aucune information personnelle", { skip }, async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { spawnSync } = await import("node:child_process");
+  // 1. Compteur anti-force brute : uniquement des empreintes (pas d'IP ni d'identifiant)
+  for (let i = 0; i < 2; i++) assert.equal((await client()("POST", "/test/api/login", { login: "gerant", password: "mauvais-code" })).status, 401);
+  const db = new DatabaseSync(path.join(DATA, "societes", "test.sqlite"));
+  const cles = db.prepare("SELECT k FROM login_fails").all().map(r => r.k);
+  db.close();
+  assert.ok(cles.length > 0, "des tentatives échouées ont bien été enregistrées");
+  for (const k of cles){ assert.match(k, /^[0-9a-f]{64}$/); assert.doesNotMatch(k, /gerant|127\.0\.0\.1/); }
+  // 2. Journal d'incident : référence, message nettoyé, aucune trace ni argument
+  const php = `require "php/lib/app.php";
+    function verifier($secret){ throw new RuntimeException("Échec pour jean.kouassi@exemple.ci, tél. 07 07 12 34 56, fichier /home/kayely/htdocs/donnees/x.sqlite"); }
+    try { verifier("CodeSecret-123"); } catch (Throwable $e) { echo kgp_message_incident(kgp_incident($e, "test")); }`;
+  const r = spawnSync("php", ["-d", "error_log=/dev/stderr", "-r", php], { encoding: "utf8" });
+  assert.match(r.stdout, /^Erreur interne du serveur \(réf\. [0-9A-F]{8}\)/);
+  assert.match(r.stderr, /\[KGP [0-9A-F]{8}\] test — RuntimeException : .*\[email\].*\[numéro\].*\[chemin\]/);
+  for (const fuite of ["jean.kouassi", "07 07 12", "/home/kayely", "CodeSecret-123", "Stack trace", "#0 "]) assert.ok(!r.stderr.includes(fuite), "fuite dans le journal : " + fuite);
+  // 3. Erreurs PHP jamais affichées dans les réponses
+  const affiche = spawnSync("php", ["-r", `require "php/lib/app.php"; echo ini_get("display_errors");`], { encoding: "utf8" });
+  assert.equal(affiche.stdout.trim(), "0");
+});

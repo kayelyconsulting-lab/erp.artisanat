@@ -4,6 +4,37 @@
 declare(strict_types=1);
 require __DIR__ . '/validation.php';
 
+// Jamais de détail technique dans les réponses (chemins, traces) : tout part dans le
+// journal du serveur, sans les arguments des fonctions (codes secrets, fiches...).
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
+ini_set('html_errors', '0');
+ini_set('log_errors', '1');
+ini_set('zend.exception_ignore_args', '1');
+
+/* Message sans données personnelles ni chemins : adresses e-mail, numéros longs
+   (téléphones, comptes) et chemins de fichiers masqués, longueur limitée. */
+function kgp_message_sur(string $m): string {
+  $m = preg_replace('/[\w.+\-]+@[\w\-]+(\.[\w\-]+)+/u', '[email]', $m);
+  $m = preg_replace('#(?:[A-Za-z]:)?(?:[\\/][\w.\-]+){2,}#u', '[chemin]', $m);
+  $m = preg_replace('/\b\d[\d .]{6,}\d\b/u', '[numéro]', $m);
+  $m = preg_replace('/\s+/u', ' ', $m);
+  return function_exists('mb_substr') ? mb_substr($m, 0, 300) : substr($m, 0, 300);
+}
+/* Journalise une erreur inattendue sous une référence courte (communiquée à
+   l'utilisateur), sans trace ni données saisies. */
+function kgp_incident(Throwable $e, string $contexte): string {
+  $ref = strtoupper(bin2hex(random_bytes(4)));
+  error_log(sprintf('[KGP %s] %s — %s : %s (%s:%d)', $ref, $contexte, get_class($e),
+    kgp_message_sur($e->getMessage()), basename($e->getFile()), $e->getLine()));
+  return $ref;
+}
+function kgp_message_incident(string $ref): string {
+  return "Erreur interne du serveur (réf. $ref). Réessayez ; si le problème persiste, communiquez cette référence à Kayely Group.";
+}
+/* Identifiants d'anti-force brute (adresse IP + identifiant) : jamais stockés en clair. */
+function kgp_cle_anonyme(string $k): string { return hash('sha256', 'kgp-tentatives|' . $k); }
+
 const KGP_IDLE = 12 * 3600;          // déconnexion après 12 h d'inactivité
 const KGP_ABSOLUTE = 7 * 24 * 3600;
 const KGP_MAX_BODY = 8 * 1024 * 1024;
@@ -45,7 +76,10 @@ function kgp_data_dir(): string {
 
 // Prépare le dossier des données (protégé même s'il est dans la partie publique).
 function kgp_prepare_dir(string $dir): void {
-  if (!is_dir($dir) && !@mkdir($dir, 0700, true)) throw new HttpError(500, "Impossible de créer le dossier des données : $dir");
+  if (!is_dir($dir) && !@mkdir($dir, 0700, true)){
+    error_log('[KGP] dossier des données impossible à créer (droits d\'écriture à vérifier)');
+    throw new HttpError(500, "Impossible de créer le dossier des données : vérifiez les droits d'écriture de l'hébergement.");
+  }
   if (!file_exists("$dir/.htaccess")) @file_put_contents("$dir/.htaccess", "Require all denied\nDeny from all\n");
   if (!file_exists("$dir/index.html")) @file_put_contents("$dir/index.html", '');
 }
@@ -82,6 +116,8 @@ function kgp_db(): PDO {
     CREATE TABLE IF NOT EXISTS audit (at INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, store TEXT, record_id INTEGER);
     CREATE TABLE IF NOT EXISTS login_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, first INTEGER NOT NULL);
   ");
+  // anciennes entrées en clair (adresse IP + identifiant) : supprimées
+  $pdo->exec("DELETE FROM login_fails WHERE length(k) <> 64 OR k GLOB '*[^0-9a-f]*'");
   return $pdos[$file] = $pdo;
 }
 
@@ -219,6 +255,7 @@ function kgp_current_session(): ?array {
 /* ---------------- limitation des tentatives ---------------- */
 
 function kgp_login_blocked(string $k): bool {
+  $k = kgp_cle_anonyme($k);
   $st = kgp_db()->prepare('SELECT n, first FROM login_fails WHERE k = ?'); $st->execute([$k]);
   $r = $st->fetch(PDO::FETCH_ASSOC); $st->closeCursor();
   if (!$r) return false;
@@ -226,6 +263,7 @@ function kgp_login_blocked(string $k): bool {
   return (int)$r['n'] >= KGP_LOGIN_MAX_FAILS;
 }
 function kgp_login_fail(string $k): void {
+  $k = kgp_cle_anonyme($k);
   $st = kgp_db()->prepare('SELECT first FROM login_fails WHERE k = ?'); $st->execute([$k]);
   $first = $st->fetchColumn(); $st->closeCursor();
   if ($first === false || time() - (int)$first > KGP_LOGIN_WINDOW){
@@ -234,7 +272,7 @@ function kgp_login_fail(string $k): void {
     kgp_db()->prepare('UPDATE login_fails SET n = n + 1 WHERE k = ?')->execute([$k]);
   }
 }
-function kgp_login_reset(string $k): void { kgp_db()->prepare('DELETE FROM login_fails WHERE k = ?')->execute([$k]); }
+function kgp_login_reset(string $k): void { $k = kgp_cle_anonyme($k); kgp_db()->prepare('DELETE FROM login_fails WHERE k = ?')->execute([$k]); }
 
 /* ---------------- droits ---------------- */
 
@@ -554,8 +592,7 @@ function kgp_handle_api(string $p): void {
   } catch (HttpError $e){
     kgp_send(['error' => $e->getMessage()], $e->status);
   } catch (Throwable $e){
-    error_log('[KGP] ' . $e);
-    kgp_send(['error' => 'Erreur interne du serveur'], 500);
+    kgp_send(['error' => kgp_message_incident(kgp_incident($e, 'API'))], 500);
   }
 }
 

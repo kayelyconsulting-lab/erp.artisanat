@@ -38,6 +38,13 @@ Il vérifie trois choses avant d'enregistrer quoi que ce soit :
 * `Content-Security-Policy` : les pages ne chargent que le site lui-même, plus deux CDN (cdnjs pour Excel, jsdelivr et tessdata pour la lecture OCR). Aucun cadre extérieur n'est permis. Les réponses JSON ont `default-src 'none'`.
 * `Strict-Transport-Security` (en HTTPS), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` et `Cross-Origin-Resource-Policy`. L'en-tête `X-Powered-By` est retiré.
 
+**Erreurs et journaux :**
+* Les erreurs PHP ne sont jamais affichées (`display_errors` désactivé par l'application).
+* Une erreur inattendue renvoie seulement « Erreur interne du serveur (réf. XXXXXXXX) ».
+* Le journal du serveur reçoit cette référence, le type d'erreur, le fichier et la ligne, et un message nettoyé : les adresses e-mail, numéros et chemins sont masqués. Il ne contient ni trace ni arguments de fonction (codes secrets, fiches).
+* Le compteur anti-force brute ne conserve qu'une empreinte (SHA-256) de l'adresse IP et de l'identifiant, jamais ces données en clair. Les anciennes entrées en clair sont supprimées automatiquement.
+* Les journaux d'activité (`audit`) ne contiennent que des numéros : utilisateur, fiche, action.
+
 **CORS limité au domaine :** l'API refuse (403) toute requête portant l'en-tête `Origin` d'un autre site, y compris les lectures et les pré-vérifications `OPTIONS`.
 Seules les pages servies par le même domaine (ex. `https://erp.kayelygroup.com`) sont acceptées.
 Des origines supplémentaires peuvent être autorisées avec la variable `KGP_ALLOWED_ORIGINS` (liste séparée par des virgules).

@@ -38,18 +38,22 @@ export const tokenHash = token => crypto.createHash("sha256").update(token).dige
 // Limitation des tentatives de connexion : 5 échecs -> blocage 15 minutes (par IP + identifiant).
 export function createLoginLimiter({ max = 5, windowMs = 15 * 60 * 1000 } = {}){
   const fails = new Map();
+  // adresse IP + identifiant : jamais conservés en clair, même en mémoire
+  const anonyme = k => crypto.createHash("sha256").update("kgp-tentatives|" + k).digest("hex");
   return {
     blocked(key){
+      key = anonyme(key);
       const e = fails.get(key);
       if (!e) return false;
       if (Date.now() - e.first > windowMs){ fails.delete(key); return false; }
       return e.count >= max;
     },
     fail(key){
+      key = anonyme(key);
       const e = fails.get(key);
       if (!e || Date.now() - e.first > windowMs) fails.set(key, { count: 1, first: Date.now() });
       else e.count++;
     },
-    reset(key){ fails.delete(key); },
+    reset(key){ fails.delete(anonyme(key)); },
   };
 }
