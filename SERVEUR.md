@@ -34,6 +34,14 @@ Il vérifie trois choses avant d'enregistrer quoi que ce soit :
    * Journal : une écriture ne peut pas être à la fois au débit et au crédit.
    * Tailles maximales et noms de champs contrôlés (`__proto__` est refusé, par exemple).
 
+**En-têtes de sécurité** (Node et PHP) :
+* `Content-Security-Policy` : les pages ne chargent que le site lui-même, plus deux CDN (cdnjs pour Excel, jsdelivr et tessdata pour la lecture OCR). Aucun cadre extérieur n'est permis. Les réponses JSON ont `default-src 'none'`.
+* `Strict-Transport-Security` (en HTTPS), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` et `Cross-Origin-Resource-Policy`. L'en-tête `X-Powered-By` est retiré.
+
+**CORS limité au domaine :** l'API refuse (403) toute requête portant l'en-tête `Origin` d'un autre site, y compris les lectures et les pré-vérifications `OPTIONS`.
+Seules les pages servies par le même domaine (ex. `https://erp.kayelygroup.com`) sont acceptées.
+Des origines supplémentaires peuvent être autorisées avec la variable `KGP_ALLOWED_ORIGINS` (liste séparée par des virgules).
+
 Une donnée refusée renvoie une erreur 422 avec la liste des problèmes, affichée à l'utilisateur.
 Chaque création, modification, suppression et connexion est enregistrée dans la table `audit`.
 

@@ -51,6 +51,8 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
+  // Toute ressource bloquée par la politique de sécurité (CSP) est une erreur.
+  page.on("console", m => { if (/Content Security Policy|Refused to/i.test(m.text())) errors.push("CSP : " + m.text().slice(0, 200)); });
   page.on("dialog", d => d.accept());
   // Erreurs HTTP de l'API, avec l'origine probable : réponse JSON = application, sinon pare-feu / proxy.
   const noterErreurs = pg => pg.on("response", async r => {

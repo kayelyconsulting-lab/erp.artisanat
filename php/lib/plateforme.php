@@ -157,6 +157,7 @@ function kgp_societe_infos(array $s): array {
 function kgp_handle_console_api(string $p, string $base): void {
   try {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    if (kgp_cors($method)) return;
     kgp_assert_same_origin($method);
     kgp_console_reinitialisation_demandee();
     $configured = kgp_config_get('console_password') !== null;
@@ -383,7 +384,7 @@ function kgp_licences_api(string $p, string $method): bool {
 
 function kgp_html_page(string $file, int $status = 200, array $vars = []): void {
   http_response_code($status);
-  kgp_security_headers();
+  kgp_security_headers(true);
   header('Content-Type: text/html; charset=utf-8');
   $html = (string)file_get_contents(__DIR__ . '/' . $file);
   foreach ($vars as $k => $v) $html = str_replace('{{' . $k . '}}', htmlspecialchars($v, ENT_QUOTES, 'UTF-8'), $html);

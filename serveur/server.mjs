@@ -220,17 +220,59 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
       req.on("error", reject);
     });
   }
-  function send(res, status, body, headers = {}){
-    const isJson = typeof body !== "string";
-    res.writeHead(status, {
-      "Content-Type": isJson ? "application/json; charset=utf-8" : "text/html; charset=utf-8",
+  // En-têtes de sécurité (mêmes règles que la version PHP).
+  const CSP_PAGE = "default-src 'self'; "
+    + "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob:; "
+    + "worker-src 'self' blob: https://cdn.jsdelivr.net; "
+    + "connect-src 'self' https://cdn.jsdelivr.net https://tessdata.projectnaptha.com data: blob:; "
+    + "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; "
+    + "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+  function securityHeaders(req, page){
+    const https = !!req && isHttps(req);
+    return {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
       "Referrer-Policy": "same-origin",
+      "Permissions-Policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Resource-Policy": "same-origin",
+      "Content-Security-Policy": page ? CSP_PAGE + (https ? "; upgrade-insecure-requests" : "") : "default-src 'none'; frame-ancestors 'none'",
+      ...(https ? { "Strict-Transport-Security": "max-age=31536000" } : {}),
+    };
+  }
+  function send(res, status, body, headers = {}){
+    const isJson = typeof body !== "string";
+    res.writeHead(status, {
+      "Content-Type": isJson ? "application/json; charset=utf-8" : "text/html; charset=utf-8",
+      ...securityHeaders(res.req, !isJson),
+      ...(res.corsHeaders || {}),
       ...headers,
     });
     res.end(isJson ? JSON.stringify(body) : body);
+  }
+  /* CORS : seules les pages de ce même domaine peuvent appeler l'API
+     (+ origines listées dans KGP_ALLOWED_ORIGINS, séparées par des virgules). */
+  function origineAutorisee(req, origin){
+    let o; try { o = new URL(origin); } catch(e){ return false; }
+    if (o.host.toLowerCase() === String(req.headers.host || "").toLowerCase() && (!isHttps(req) || o.protocol === "https:")) return true;
+    return String(process.env.KGP_ALLOWED_ORIGINS || "").split(",").map(s => s.trim().replace(/\/+$/, ""))
+      .filter(Boolean).some(a => a.toLowerCase() === origin.replace(/\/+$/, "").toLowerCase());
+  }
+  /* Renvoie true si la réponse (pré-vérification OPTIONS) est déjà envoyée. */
+  function cors(req, res){
+    const origin = req.headers.origin;
+    if (origin){
+      if (!origineAutorisee(req, origin)) throw new HttpError(403, "Origine refusée : seules les pages de ce domaine peuvent utiliser cette API.");
+      res.corsHeaders = { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Credentials": "true", "Vary": "Origin" };
+    }
+    if (req.method === "OPTIONS"){
+      res.writeHead(204, { ...securityHeaders(req, false), ...(res.corsHeaders || {}),
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "600" });
+      res.end();
+      return true;
+    }
+    return false;
   }
   // Anti-CSRF : écritures uniquement en JSON et depuis la même origine.
   function assertSameOrigin(req){
@@ -239,10 +281,11 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
     // pas l'envoyer sans autorisation CORS (jamais accordée ici).
     if (req.method !== "DELETE" && !(req.headers["content-type"] || "").startsWith("application/json")) throw new HttpError(415, "JSON attendu");
     const origin = req.headers.origin;
-    if (origin && new URL(origin).host !== req.headers.host) throw new HttpError(403, "Origine refusée");
+    if (origin && !origineAutorisee(req, origin)) throw new HttpError(403, "Origine refusée");
   }
 
   async function handleApi(req, res, url){
+    if (cors(req, res)) return;
     assertSameOrigin(req);
     const p = url.pathname;
     const m = req.method;

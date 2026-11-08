@@ -369,11 +369,60 @@ function kgp_remove(array $user, string $store, int $id): bool {
 
 /* ---------------- HTTP ---------------- */
 
-function kgp_security_headers(): void {
+/* En-têtes de sécurité. Pages : politique de contenu limitée au site et aux deux CDN
+   utilisés (Excel : cdnjs ; lecture OCR : jsdelivr + données de langue tessdata).
+   Réponses JSON : rien ne peut s'y exécuter. */
+const KGP_CSP_PAGE = "default-src 'self'; "
+  . "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob:; "
+  . "worker-src 'self' blob: https://cdn.jsdelivr.net; "
+  . "connect-src 'self' https://cdn.jsdelivr.net https://tessdata.projectnaptha.com data: blob:; "
+  . "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; "
+  . "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+function kgp_security_headers(bool $page = false): void {
   header('Cache-Control: no-store');
   header('X-Content-Type-Options: nosniff');
   header('X-Frame-Options: DENY');
   header('Referrer-Policy: same-origin');
+  header('Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+  header('Cross-Origin-Opener-Policy: same-origin');
+  header('Cross-Origin-Resource-Policy: same-origin');
+  header('Content-Security-Policy: ' . ($page ? KGP_CSP_PAGE . (kgp_is_https() ? '; upgrade-insecure-requests' : '') : "default-src 'none'; frame-ancestors 'none'"));
+  if (kgp_is_https()) header('Strict-Transport-Security: max-age=31536000');
+  header_remove('X-Powered-By');
+}
+
+/* CORS : seules les pages servies par ce même domaine (ex. https://erp.kayelygroup.com)
+   peuvent appeler l'API. Origines supplémentaires possibles via la variable
+   d'environnement KGP_ALLOWED_ORIGINS (liste séparée par des virgules). */
+function kgp_origine_autorisee(string $origin): bool {
+  $o = parse_url($origin);
+  if (!$o || empty($o['host']) || empty($o['scheme'])) return false;
+  $hote = strtolower($o['host'] . (isset($o['port']) ? ':' . $o['port'] : ''));
+  if ($hote === strtolower($_SERVER['HTTP_HOST'] ?? '') && (!kgp_is_https() || $o['scheme'] === 'https')) return true;
+  foreach (array_filter(array_map('trim', explode(',', (string)getenv('KGP_ALLOWED_ORIGINS')))) as $a){
+    if (strcasecmp(rtrim($a, '/'), rtrim($origin, '/')) === 0) return true;
+  }
+  return false;
+}
+/* À appeler au début de chaque requête d'API. Renvoie true si la réponse est déjà
+   envoyée (pré-vérification OPTIONS). Refuse toute requête venant d'un autre site. */
+function kgp_cors(string $method): bool {
+  $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+  if ($origin !== ''){
+    if (!kgp_origine_autorisee($origin)) throw new HttpError(403, 'Origine refusée : seules les pages de ce domaine peuvent utiliser cette API.');
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Access-Control-Allow-Credentials: true');
+    header('Vary: Origin');
+  }
+  if ($method === 'OPTIONS'){
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE');
+    header('Access-Control-Allow-Headers: Content-Type');
+    header('Access-Control-Max-Age: 600');
+    kgp_security_headers();
+    http_response_code(204);
+    return true;
+  }
+  return false;
 }
 function kgp_send($body, int $status = 200): void {
   http_response_code($status);
@@ -397,15 +446,14 @@ function kgp_assert_same_origin(string $method): void {
   $ct = $_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '';
   if ($method !== 'DELETE' && strpos($ct, 'application/json') !== 0) throw new HttpError(415, 'JSON attendu');
   $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-  if ($origin !== '' && parse_url($origin, PHP_URL_HOST) . (parse_url($origin, PHP_URL_PORT) ? ':' . parse_url($origin, PHP_URL_PORT) : '') !== ($_SERVER['HTTP_HOST'] ?? '')){
-    throw new HttpError(403, 'Origine refusée');
-  }
+  if ($origin !== '' && !kgp_origine_autorisee($origin)) throw new HttpError(403, 'Origine refusée');
 }
 
 // $p : chemin à partir de « /api/ » (ex. /api/data/clients), pour la société en cours.
 function kgp_handle_api(string $p): void {
   try {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    if (kgp_cors($method)) return;
     kgp_tenant();
     kgp_assert_same_origin($method);
 
@@ -515,7 +563,7 @@ function kgp_serve_app(): void {
   $t = kgp_tenant();
   $html = file_get_contents(__DIR__ . '/kgpro.html');
   if ($html === false){ http_response_code(500); echo 'kgpro.html introuvable dans lib/'; return; }
-  kgp_security_headers();
+  kgp_security_headers(true);
   header('Content-Type: text/html; charset=utf-8');
   $societe = json_encode(['slug' => $t['slug'], 'nom' => $t['nom']], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
   // Clé PUBLIQUE de vérification des licences (créée dans la console) : rien à configurer à la main.

@@ -183,6 +183,39 @@ test("envoi groupé (lot)", async () => {
   assert.equal((await admin("PUT", "/api/data/planComptable/lot", { pas: "une liste" })).status, 422);
 });
 
+test("en-têtes de sécurité", async () => {
+  const api = await fetch(base + "/api/status");
+  assert.match(api.headers.get("content-security-policy") || "", /default-src 'none'/);
+  assert.equal(api.headers.get("x-frame-options"), "DENY");
+  assert.equal(api.headers.get("x-content-type-options"), "nosniff");
+  assert.match(api.headers.get("permissions-policy") || "", /geolocation=\(\)/);
+  assert.equal(api.headers.get("cross-origin-opener-policy"), "same-origin");
+  assert.equal(api.headers.get("strict-transport-security"), null, "HSTS seulement en HTTPS");
+  const page = await fetch(base + "/");
+  const csp = page.headers.get("content-security-policy") || "";
+  assert.match(csp, /default-src 'self'/); assert.match(csp, /frame-ancestors 'none'/); assert.match(csp, /cdnjs\.cloudflare\.com/);
+  assert.equal(page.headers.get("x-powered-by"), null);
+  const https = await fetch(base + "/api/status", { headers: { "X-Forwarded-Proto": "https" } });
+  assert.match(https.headers.get("strict-transport-security") || "", /max-age=31536000/);
+});
+
+test("CORS limité au domaine du site", async () => {
+  const propre = new URL(base).origin;
+  // autre site : refusé, même en lecture et en pré-vérification
+  assert.equal((await fetch(base + "/api/status", { headers: { Origin: "https://pirate.example" } })).status, 403);
+  assert.equal((await fetch(base + "/api/data/clients", { method: "OPTIONS", headers: { Origin: "https://pirate.example", "Access-Control-Request-Method": "PUT" } })).status, 403);
+  assert.equal((await fetch(base + "/api/status", { headers: { Origin: "null" } })).status, 403);
+  // même domaine : autorisé
+  const ok = await fetch(base + "/api/status", { headers: { Origin: propre } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get("access-control-allow-origin"), propre);
+  const pre = await fetch(base + "/api/data/clients", { method: "OPTIONS", headers: { Origin: propre, "Access-Control-Request-Method": "PUT" } });
+  assert.equal(pre.status, 204);
+  assert.match(pre.headers.get("access-control-allow-methods") || "", /PUT/);
+  // sans Origin (navigation, outils) : inchangé
+  assert.equal((await fetch(base + "/api/status")).status, 200);
+});
+
 test("cookie de session protégé", async () => {
   const r = await client()("POST", "/api/login", { login: "admin", password: PASS });
   const set = r.headers.get("set-cookie");
