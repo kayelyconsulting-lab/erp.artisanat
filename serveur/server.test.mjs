@@ -154,6 +154,23 @@ test("protection CSRF et limitation des tentatives", async () => {
   assert.equal((await c("POST", "/api/login", { login: "gerant", password: "Gerant-Perso-2026" })).status, 429);
 });
 
+test("clôture de période", async () => {
+  assert.equal((await admin("PUT", "/api/data/clients", { nom: "Client clôture" })).status, 200);
+  const avant = await admin("PUT", "/api/data/journal", { date: "2025-06-30", compte: "571", debit: 5, credit: 0 });
+  assert.equal(avant.status, 200);
+  const soc = (await admin("GET", "/api/data/societe")).data[0] || {};
+  assert.equal((await admin("PUT", "/api/data/societe", { ...soc, raison: "Kayely SARL", dateCloture: "2025-12-31" })).status, 200);
+  const bloque = await admin("PUT", "/api/data/journal", { date: "2025-12-31", compte: "571", debit: 5, credit: 0 });
+  assert.equal(bloque.status, 422);
+  assert.match(bloque.data.error, /clôturée/);
+  assert.equal((await admin("DELETE", "/api/data/journal/" + avant.data.id)).status, 422);
+  assert.equal((await admin("PUT", "/api/data/journal", { id: avant.data.id, date: "2026-01-02", compte: "571", debit: 5, credit: 0 })).status, 422);
+  assert.equal((await admin("PUT", "/api/data/journal", { date: "2026-01-01", compte: "571", debit: 5, credit: 0 })).status, 200);
+  assert.equal((await admin("PUT", "/api/data/paieCalcul", { employe: "", periode: "12/2025", salaireCategoriel: 1 })).status, 422);
+  // réouverture : réservée à l'administrateur (ici admin -> autorisé)
+  assert.equal((await admin("PUT", "/api/data/societe", { ...soc, raison: "Kayely SARL", dateCloture: "" })).status, 200);
+});
+
 test("cookie de session protégé", async () => {
   const r = await client()("POST", "/api/login", { login: "admin", password: PASS });
   const set = r.headers.get("set-cookie");

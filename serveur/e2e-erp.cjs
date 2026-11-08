@@ -178,6 +178,41 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   assert.equal(treso.parCompte.find(c => c.label === "Banques").value, -10000 - 708000);
   ok("trésorerie : caisse " + (50000 + 8000 - 15000) + ", banques " + (-10000 - 708000));
 
+  console.log("États financiers, TVA, pièce comptable, impressions");
+  const ef = await ev(async () => computeEtatsFinanciers(await getAll("journal"), "2026-01-01", "2026-12-31"));
+  assert.ok(Math.abs(ef.bilan.ecart) < 0.01, "bilan équilibré, écart " + ef.bilan.ecart);
+  assert.equal(Math.round(ef.resultat.ca), 4 * 5500 + 2500 + 100000 - 1000, "CA = factures - avoir");
+  const tva = await ev(async () => computeTva(await getAll("journal")));
+  assert.equal(Math.round(tva.collectee), Math.round((24500 + 100000 - 1000) * 0.18));
+  assert.equal(Math.round(tva.deductible), Math.round(40000 * 0.18 + 600000 * 0.18));
+  await ev(() => openPieceForm()); await page.waitForSelector("#overlay.show");
+  await page.fill("#pc_piece", "OD-LOYER-03"); await page.fill("#pc_date", "2026-03-31");
+  const rows = page.locator("#pieceEditor tbody tr");
+  await rows.nth(0).locator("td:nth-child(1) input").fill("6222"); await rows.nth(0).locator("td:nth-child(3) input").fill("150000");
+  await rows.nth(1).locator("td:nth-child(1) input").fill("521"); await rows.nth(1).locator("td:nth-child(4) input").fill("140000");
+  await page.click("#overlay .modal-actions .btn.gold"); await page.waitForTimeout(200);
+  assert.match(await lastToast(), /déséquilibrée/);
+  await rows.nth(1).locator("td:nth-child(4) input").fill("150000");
+  await page.click("#overlay .modal-actions .btn.gold"); await page.waitForTimeout(500);
+  assert.equal(await ev(async () => (await getAll("journal")).filter(e => e.piece === "OD-LOYER-03").length), 2);
+  await assertEquilibre("après pièce multi-lignes");
+  const [popup] = await Promise.all([page.waitForEvent("popup"), ev(async () => printReleveClient((await getAll("clients"))[0].id))]);
+  await popup.waitForLoadState(); const releve = await popup.content(); await popup.close();
+  assert.match(releve, /Relevé de compte client/); assert.match(releve, /francs? CFA/);
+  const [popF] = await Promise.all([page.waitForEvent("popup"), ev(id => printFacture("factures", id), fact.id)]);
+  await popF.waitForLoadState(); assert.match(await popF.content(), /Arrêtée la présente facture à la somme de/); await popF.close();
+  ok("bilan équilibré, CA " + ef.resultat.ca + ", TVA due " + Math.round(tva.due) + ", pièce déséquilibrée refusée, relevé et facture en lettres");
+
+  console.log("Clôture de période");
+  await ev(async () => { const s = (await getAll("societe"))[0] || { id: 1 }; s.dateCloture = "2026-03-06"; await putRecord("societe", s); });
+  await saveViaForm("avoirs", { motif: "modif interdite" }, await ev(async () => (await getAll("avoirs"))[0].id));
+  assert.match(await lastToast(), /clôturée/);
+  await ev(() => closeModal());
+  const serveurRefuse = await ev(async () => { try { await putRecord("journal", { date: "2026-03-01", compte: "571", debit: 1, credit: 0 }); return "accepté"; } catch(e){ return e.message; } });
+  assert.match(serveurRefuse, /clôturée/, "refus côté serveur");
+  await ev(async () => { const s = (await getAll("societe"))[0]; s.dateCloture = ""; await putRecord("societe", s); });
+  ok("modification d'une pièce du 06/03 refusée (application et serveur), période rouverte par l'administrateur");
+
   console.log("Suppression d'une facture : écritures, stock et lien devis retirés");
   await ev(id => removeRecord("factures", id), factDevis.id);
   await page.waitForTimeout(400);
@@ -223,7 +258,8 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   await p2.fill("#loginUser", "compta"); await p2.fill("#loginPass", "Compta-Init-2026"); await p2.click("#loginCard button");
   await p2.waitForSelector("#setupCard", { state: "visible" });
   await p2.fill("#setupPass", "Compta-Perso-2026"); await p2.fill("#setupPass2", "Compta-Perso-2026"); await p2.click("#setupCard button");
-  await p2.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: 60000 });
+  await p2.waitForFunction(() => document.getElementById("app").classList.contains("show"), null, { timeout: 60000 })
+    .catch(async e => { throw new Error(e.message + " | écran : " + await p2.evaluate(() => [document.getElementById("setupError").textContent, document.getElementById("loginError").textContent, (document.getElementById("dbStatus")||{}).textContent].join(" / "))); });
   await p2.evaluate(() => openForm("factures")); await p2.waitForSelector("#overlay.show");
   await p2.fill("#f_date", "2026-03-20"); await p2.selectOption("#f_client", "Client Alpha");
   await p2.selectOption("#lignesEditor select", "Pose");
@@ -249,6 +285,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
 })().catch(async e => {
   console.error("\n✗ ÉCHEC :", e.message);
   if (page) console.error("Derniers messages :", await page.evaluate(() => (window.__toasts || []).slice(-4)).catch(() => "?"));
+  try{ console.error("Journal PHP :\n" + fs.readFileSync(path.join(data, "php.log"), "utf8").split("\n").filter(l => /KGP|Fatal|Warning|error/i.test(l)).slice(-15).join("\n")); }catch(_){}
   process.exitCode = 1;
 }).finally(async () => {
   if (browser) await browser.close().catch(() => {});

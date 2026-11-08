@@ -95,15 +95,15 @@ function kgp_all(string $store): array {
 function kgp_get(string $store, int $id): ?array {
   $st = kgp_db()->prepare('SELECT data FROM records WHERE store = ? AND id = ?');
   $st->execute([$store, $id]);
-  $data = $st->fetchColumn();
+  $data = $st->fetchColumn(); $st->closeCursor();
   if ($data === false) return null;
   $d = json_decode($data, true); $d['id'] = $id; return $d;
 }
 function kgp_count(string $store): int {
-  $st = kgp_db()->prepare('SELECT COUNT(*) FROM records WHERE store = ?'); $st->execute([$store]); return (int)$st->fetchColumn();
+  $st = kgp_db()->prepare('SELECT COUNT(*) FROM records WHERE store = ?'); $st->execute([$store]); $n = (int)$st->fetchColumn(); $st->closeCursor(); return $n;
 }
 function kgp_next_id(string $store): int {
-  $st = kgp_db()->prepare('SELECT COALESCE(MAX(id), 0) FROM records WHERE store = ?'); $st->execute([$store]); return (int)$st->fetchColumn() + 1;
+  $st = kgp_db()->prepare('SELECT COALESCE(MAX(id), 0) FROM records WHERE store = ?'); $st->execute([$store]); $n = (int)$st->fetchColumn(); $st->closeCursor(); return $n + 1;
 }
 function kgp_put(string $store, int $id, array $data, ?int $userId): void {
   unset($data['id']);
@@ -207,7 +207,7 @@ function kgp_current_session(): ?array {
   $db->prepare('DELETE FROM sessions WHERE last_seen < ?')->execute([time() - KGP_IDLE]);
   $st = $db->prepare('SELECT user_id, created_at, last_seen FROM sessions WHERE token_hash = ?');
   $st->execute([$hash]);
-  $s = $st->fetch(PDO::FETCH_ASSOC);
+  $s = $st->fetch(PDO::FETCH_ASSOC); $st->closeCursor();
   if (!$s) return null;
   if (time() - (int)$s['created_at'] > KGP_ABSOLUTE){ $db->prepare('DELETE FROM sessions WHERE token_hash = ?')->execute([$hash]); return null; }
   $user = kgp_get('utilisateurs', (int)$s['user_id']);
@@ -220,14 +220,14 @@ function kgp_current_session(): ?array {
 
 function kgp_login_blocked(string $k): bool {
   $st = kgp_db()->prepare('SELECT n, first FROM login_fails WHERE k = ?'); $st->execute([$k]);
-  $r = $st->fetch(PDO::FETCH_ASSOC);
+  $r = $st->fetch(PDO::FETCH_ASSOC); $st->closeCursor();
   if (!$r) return false;
   if (time() - (int)$r['first'] > KGP_LOGIN_WINDOW){ kgp_db()->prepare('DELETE FROM login_fails WHERE k = ?')->execute([$k]); return false; }
   return (int)$r['n'] >= KGP_LOGIN_MAX_FAILS;
 }
 function kgp_login_fail(string $k): void {
   $st = kgp_db()->prepare('SELECT first FROM login_fails WHERE k = ?'); $st->execute([$k]);
-  $first = $st->fetchColumn();
+  $first = $st->fetchColumn(); $st->closeCursor();
   if ($first === false || time() - (int)$first > KGP_LOGIN_WINDOW){
     kgp_db()->prepare('INSERT OR REPLACE INTO login_fails (k, n, first) VALUES (?, 1, ?)')->execute([$k, time()]);
   } else {
@@ -245,6 +245,30 @@ function kgp_assert_can_write(array $user, array $mod): void {
   elseif (($mod['section'] ?? '') === 'parametres') $ok = kgp_is_gerant_or_admin($user);
   else $ok = true;
   if (!$ok) throw new HttpError(403, 'Action non autorisée pour votre rôle.');
+}
+
+/* ---------------- clôture de période ----------------
+   Société > « Période comptable clôturée jusqu'au » : aucune pièce datée avant (incluse)
+   ne peut plus être créée, modifiée ni supprimée. */
+const KGP_LOCK_DATE_FIELDS = ['factures' => 'date', 'avoirs' => 'date', 'facturesAchat' => 'date', 'stockEntrees' => 'date',
+  'stockSorties' => 'date', 'treso_caisse' => 'date', 'journal' => 'date', 'immobilisations' => 'dateAcquisition', 'paieCalcul' => 'periode'];
+function kgp_piece_date(string $store, ?array $r): string {
+  $f = KGP_LOCK_DATE_FIELDS[$store] ?? null;
+  if (!$f || !$r || !is_string($r[$f] ?? null)) return '';
+  if ($f !== 'periode') return $r[$f];
+  if (!preg_match('/^\s*(\d{1,2})\s*\/\s*(\d{4})\s*$/', $r[$f], $m)) return '';
+  $mois = (int)$m[1]; $annee = (int)$m[2];
+  if ($mois < 1 || $mois > 12) return '';
+  return sprintf('%04d-%02d-%02d', $annee, $mois, cal_days_in_month_safe($mois, $annee));
+}
+function cal_days_in_month_safe(int $mois, int $annee): int { return (int)date('t', mktime(0, 0, 0, $mois, 1, $annee)); }
+function kgp_lock_date(): string {
+  $s = kgp_get('societe', 1);
+  return $s && is_string($s['dateCloture'] ?? null) ? $s['dateCloture'] : '';
+}
+function kgp_assert_open(string $store, ?array $r): void {
+  $lock = kgp_lock_date(); $d = kgp_piece_date($store, $r);
+  if ($lock !== '' && $d !== '' && $d <= $lock) throw new ValidationError(["Période clôturée jusqu'au $lock : une pièce du $d ne peut plus être créée, modifiée ni supprimée."]);
 }
 
 /* ---------------- opérations sur les données ---------------- */
@@ -307,6 +331,12 @@ function kgp_save(array $user, string $store, $input, string $sessionHash): int 
       if (kgp_active_admins_except($id, $record + ['id' => $id]) === 0) throw new ValidationError(['Il doit rester au moins un administrateur actif.']);
     }
 
+    kgp_assert_open($mod['key'], $existing);
+    kgp_assert_open($mod['key'], $record);
+    if ($mod['key'] === 'societe' && $existing && !empty($existing['dateCloture']) && !kgp_is_admin($user)
+        && (empty($record['dateCloture']) || $record['dateCloture'] < $existing['dateCloture'])){
+      throw new HttpError(403, "Seul l'administrateur peut rouvrir une période clôturée.");
+    }
     kgp_put($mod['key'], $id, $record, $user['id']);
     kgp_audit($user['id'], $existing ? 'update' : 'create', $mod['key'], $id);
     return $id;
@@ -330,6 +360,7 @@ function kgp_remove(array $user, string $store, int $id): bool {
       if (kgp_active_admins_except($id, null) === 0) throw new ValidationError(['Il doit rester au moins un administrateur actif.']);
       kgp_delete_other_sessions($id);
     }
+    kgp_assert_open($mod['key'], kgp_get($mod['key'], $id));
     $ok = kgp_delete($mod['key'], $id);
     if ($ok) kgp_audit($user['id'], 'delete', $mod['key'], $id);
     return $ok;

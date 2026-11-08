@@ -91,6 +91,26 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
     if (!ok) throw new HttpError(403, "Action non autorisée pour votre rôle.");
   }
 
+  /* ---------- clôture de période ----------
+     Société > « Période comptable clôturée jusqu'au » : aucune pièce datée avant (incluse)
+     ne peut plus être créée, modifiée ni supprimée. */
+  const LOCK_DATE_FIELDS = { factures:"date", avoirs:"date", facturesAchat:"date", stockEntrees:"date", stockSorties:"date",
+    treso_caisse:"date", journal:"date", immobilisations:"dateAcquisition", paieCalcul:"periode" };
+  function pieceDate(store, r){
+    const f = LOCK_DATE_FIELDS[store];
+    if (!f || !r || typeof r[f] !== "string") return "";
+    if (f !== "periode") return r[f];
+    const m = /^\s*(\d{1,2})\s*\/\s*(\d{4})\s*$/.exec(r[f]);
+    if (!m) return "";
+    const mois = Number(m[1]), annee = Number(m[2]);
+    return `${annee}-${String(mois).padStart(2, "0")}-${String(new Date(annee, mois, 0).getDate()).padStart(2, "0")}`;
+  }
+  const lockDate = () => { const s = db.get("societe", 1); return s && typeof s.dateCloture === "string" ? s.dateCloture : ""; };
+  function assertOpen(store, r){
+    const lock = lockDate(), d = pieceDate(store, r);
+    if (lock && d && d <= lock) throw new ValidationError([`Période clôturée jusqu'au ${lock} : une pièce du ${d} ne peut plus être créée, modifiée ni supprimée.`]);
+  }
+
   /* ---------- lecture / écriture des données ---------- */
   function list(user, store){
     const mod = moduleOr404(store);
@@ -150,6 +170,12 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
         if (activeAdminsExcept(id, { ...record, id }) === 0) throw new ValidationError(["Il doit rester au moins un administrateur actif."]);
       }
 
+      assertOpen(mod.key, existing);
+      assertOpen(mod.key, record);
+      if (mod.key === "societe" && existing && existing.dateCloture && !isAdmin(user)
+          && (!record.dateCloture || record.dateCloture < existing.dateCloture)){
+        throw new HttpError(403, "Seul l'administrateur peut rouvrir une période clôturée.");
+      }
       db.put(mod.key, id, record, user.id);
       db.audit(user.id, existing ? "update" : "create", mod.key, id);
       return id;
@@ -174,6 +200,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
         if (activeAdminsExcept(id, null) === 0) throw new ValidationError(["Il doit rester au moins un administrateur actif."]);
         db.sessions.deleteOthers(id, "");
       }
+      assertOpen(mod.key, db.get(mod.key, id));
       const ok = db.delete(mod.key, id);
       if (ok) db.audit(user.id, "delete", mod.key, id);
       return ok;

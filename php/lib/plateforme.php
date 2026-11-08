@@ -37,11 +37,11 @@ function kgp_tenant_file(string $slug): string { return kgp_data_dir() . '/socie
 function kgp_find_societe(string $slug): ?array {
   $st = kgp_platform_db()->prepare('SELECT slug, nom, statut, cree_le FROM societes WHERE slug = ?');
   $st->execute([$slug]);
-  return $st->fetch(PDO::FETCH_ASSOC) ?: null;
+  $r = $st->fetch(PDO::FETCH_ASSOC); $st->closeCursor(); return $r ?: null;
 }
 function kgp_config_get(string $k): ?string {
   $st = kgp_platform_db()->prepare('SELECT v FROM config WHERE k = ?'); $st->execute([$k]);
-  $v = $st->fetchColumn(); return $v === false ? null : (string)$v;
+  $v = $st->fetchColumn(); $st->closeCursor(); return $v === false ? null : (string)$v;
 }
 function kgp_config_set(string $k, string $v): void {
   kgp_platform_db()->prepare('INSERT OR REPLACE INTO config (k, v) VALUES (?, ?)')->execute([$k, $v]);
@@ -88,7 +88,7 @@ function kgp_console_logged_in(): ?string {
   $db = kgp_platform_db();
   $db->prepare('DELETE FROM console_sessions WHERE last_seen < ? OR created_at < ?')->execute([time() - 2 * 3600, time() - 24 * 3600]);
   $st = $db->prepare('SELECT 1 FROM console_sessions WHERE token_hash = ?'); $st->execute([$h]);
-  if (!$st->fetchColumn()) return null;
+  $found = $st->fetchColumn(); $st->closeCursor(); if (!$found) return null;
   $db->prepare('UPDATE console_sessions SET last_seen = ? WHERE token_hash = ?')->execute([time(), $h]);
   return $h;
 }
@@ -100,7 +100,7 @@ function kgp_console_start_session(string $base): void {
 }
 function kgp_console_blocked(string $k): bool {
   $st = kgp_platform_db()->prepare('SELECT n, first FROM console_fails WHERE k = ?'); $st->execute([$k]);
-  $r = $st->fetch(PDO::FETCH_ASSOC);
+  $r = $st->fetch(PDO::FETCH_ASSOC); $st->closeCursor();
   if (!$r) return false;
   if (time() - (int)$r['first'] > KGP_LOGIN_WINDOW){ kgp_platform_db()->prepare('DELETE FROM console_fails WHERE k = ?')->execute([$k]); return false; }
   return (int)$r['n'] >= KGP_LOGIN_MAX_FAILS;
@@ -108,7 +108,7 @@ function kgp_console_blocked(string $k): bool {
 function kgp_console_fail(string $k): void {
   $db = kgp_platform_db();
   $st = $db->prepare('SELECT first FROM console_fails WHERE k = ?'); $st->execute([$k]);
-  $first = $st->fetchColumn();
+  $first = $st->fetchColumn(); $st->closeCursor();
   if ($first === false || time() - (int)$first > KGP_LOGIN_WINDOW) $db->prepare('INSERT OR REPLACE INTO console_fails (k, n, first) VALUES (?, 1, ?)')->execute([$k, time()]);
   else $db->prepare('UPDATE console_fails SET n = n + 1 WHERE k = ?')->execute([$k]);
 }

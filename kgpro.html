@@ -448,7 +448,9 @@ const SECTIONS = [
           {k:"cc",l:"N° Contribuable (CC)",t:"text"},{k:"regime",l:"Régime fiscal",t:"text"},
           {k:"adresse",l:"Adresse",t:"text"},{k:"ville",l:"Ville",t:"text"},
           {k:"tel",l:"Téléphone",t:"text"},{k:"email",l:"Email",t:"text"},
-          {k:"capital",l:"Capital social (FCFA)",t:"number"} ] },
+          {k:"capital",l:"Capital social (FCFA)",t:"number"},
+          {k:"debutExercice",l:"Début de l'exercice comptable en cours",t:"date"},
+          {k:"dateCloture",l:"Période comptable clôturée jusqu'au (inclus) — plus aucune modification avant cette date",t:"date"} ] },
       { key:"utilisateurs", label:"Utilisateurs", fields:[
           {k:"nom",l:"Nom",t:"text",req:1},{k:"prenom",l:"Prénom",t:"text"},
           {k:"login",l:"Identifiant de connexion",t:"text",req:1},
@@ -614,6 +616,8 @@ const SECTIONS = [
       { key:"grandLivre", label:"Grand livre (vue)", readonly:"grandlivre" },
       { key:"balance", label:"Balance (vue)", readonly:"balance" },
       { key:"dashboardCompta", label:"Tableau de bord comptable", readonly:"dashboardCompta" },
+      { key:"etatsFinanciers", label:"États financiers (Bilan, Résultat)", readonly:"etats" },
+      { key:"declarationTva", label:"Déclaration de TVA", readonly:"tva" },
   ]},
   { id:"rh", num:"09", label:"Ressources Humaines", icon:"👨‍💼", modules:[
       { key:"rhEmployes", label:"Fiche employé", fields:[
@@ -1562,6 +1566,8 @@ async function renderRoute(moduleKey){
   if (entry.mod.readonly === "relances") return renderRelances();
   if (entry.mod.readonly === "previsionnel") return renderPrevisionnel();
   if (entry.mod.readonly === "dashboardCompta") return renderDashboardCompta();
+  if (entry.mod.readonly === "etats") return renderEtatsFinanciers();
+  if (entry.mod.readonly === "tva") return renderDeclarationTva();
   if (entry.mod.single) return renderSingleForm(entry.mod);
   return renderModuleList(entry.mod);
 }
@@ -1722,7 +1728,13 @@ function kpiCard(label, value, sub){
   return `<div class="kpi"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
 }
 async function getAllSafe(store){
-  try { return await getAll(store); } catch(e){ return []; }
+  try { return await getAll(store); }
+  catch(e){
+    // En mode serveur, une lecture refusée ne doit pas passer inaperçue (sinon stocks et
+    // soldes s'afficheraient à 0) : on prévient l'utilisateur.
+    if (KGP_SERVER && e && e.status && e.status !== 401 && e.status !== 404) toast("Lecture impossible ("+store+") : "+e.message);
+    return [];
+  }
 }
 function fmt(n){
   n = Number(n)||0;
@@ -1952,6 +1964,7 @@ async function renderModuleList(mod){
       <input class="search-box" placeholder="Rechercher..." value="${esc(searchTerm)}" oninput="onSearch('${mod.key}', this.value)">
       <button class="btn small ghost" onclick="exportModuleExcel('${mod.key}')">⬇️ Exporter Excel</button>
       <button class="btn small ghost" onclick="triggerExcelImport('${mod.key}')">⬆️ Importer Excel</button>
+      ${mod.key==="journal" ? `<button class="btn small" onclick="openPieceForm()">✍️ Saisir une pièce (plusieurs lignes)</button>` : ""}
       <button class="btn gold" onclick="openForm('${mod.key}')">+ Nouveau</button>
     </div>
     <div class="table-wrap">
@@ -1970,6 +1983,7 @@ async function renderModuleList(mod){
               ${mod.special==="paie" ? `<button class="btn small ghost" onclick="printBulletin(${r.id})">Bulletin</button>` : ""}
               ${mod.special==="immobilisations" ? `<button class="btn small ghost" onclick="printPlanAmortissement(${r.id})">Tableau d'amort.</button>` : ""}
               ${(mod.special==="factures"||mod.special==="facturesAchat") ? `<button class="btn small ghost" onclick="printFacture('${mod.key}', ${r.id})">Voir facture</button>` : ""}
+              ${mod.special==="clients" ? `<button class="btn small ghost" onclick="printReleveClient(${r.id})">Relevé</button>` : ""}
               ${r.scanImage ? `<button class="btn small ghost" onclick="viewScanImage('${mod.key}', ${r.id})">📎 Voir le scan</button>` : ""}
               ${mod.special==="immobilisations" && !((r.anneesPostees||[]).includes(new Date().getFullYear())) && (r.planAmortissement||[]).some(p=>p.annee===new Date().getFullYear())
                 ? `<button class="btn small gold" onclick="postAmortissementAnnee('${mod.key}', ${r.id}, ${new Date().getFullYear()})">Comptabiliser dotation ${new Date().getFullYear()}</button>` : ""}
@@ -2118,6 +2132,7 @@ async function removeRecord(storeKey, id){
   if (!isAdmin()){ toast("Action réservée à l'administrateur"); return; }
   const existing = (await getAll(storeKey)).find(r=>r.id===id);
   if (!existing){ toast("Enregistrement introuvable"); return; }
+  if (!(await verifierCloture(storeKey, existing))) return;
   const lie = anciennesPieces(storeKey, existing) ? " Les écritures comptables générées par cette pièce seront aussi supprimées." : "";
   if (!confirm("Supprimer cet enregistrement ?" + lie)) return;
   // Retire tout ce que la pièce a généré : écritures, mouvements de stock, lien devis -> facture.
@@ -2623,6 +2638,8 @@ async function saveForm(storeKey, id){
     if (Number(record.quantite) > dispo) toast("Attention : stock disponible de « "+record.article+" » insuffisant ("+fmtQty(dispo)+")");
   }
 
+  if (!(await verifierCloture(storeKey, existing, record))) return;
+
   if (!id && NUMERO_PREFIXES[storeKey]){
     record.numero = await generateNumero(storeKey);
   }
@@ -3025,6 +3042,7 @@ async function printFacture(storeKey, id){
       <tr><td>${isAchat?"Réglé":"Encaissé"}</td><td>${fmt(regle)}</td></tr>
       <tr><td><b>Solde</b></td><td><b>${fmt(solde)}</b></td></tr>
     </table>
+    <div style="margin-top:10px; font-size:12px;">Arrêtée la présente facture à la somme de : <b>${esc(montantEnLettres(ttc))}</b>${timbre>0?" (timbre inclus)":""}.</div>
     <button class="noprint" style="margin-top:14px;" onclick="window.print()">Imprimer</button>
   </body></html>`;
   const w = window.open("", "_blank");
@@ -3172,53 +3190,85 @@ async function saveSingle(storeKey){
    7) GRAND LIVRE / BALANCE / CNPS (vues calculees)
    --------------------------------------------------------- */
 async function renderGrandLivre(){
-  const rows = (await getAllSafe("journal")).map(escInPlace);
+  const { du, au } = await getPeriodeCompta();
+  const [rows, intitules] = await Promise.all([getAllSafe("journal"), getIntitulesComptes()]);
   const byCompte = {};
   rows.forEach(r => {
-    const c = r.compte || "—";
-    if (!byCompte[c]) byCompte[c] = [];
-    byCompte[c].push(r);
+    if (!r.date || r.date > au) return;
+    const c = String(r.compte || "—").trim();
+    if (!byCompte[c]) byCompte[c] = { report:0, lignes:[] };
+    if (r.date < du) byCompte[c].report += (Number(r.debit)||0) - (Number(r.credit)||0);
+    else byCompte[c].lignes.push(r);
   });
-  const comptes = Object.keys(byCompte).sort();
-  let html = `<h1 class="page-title">Grand Livre</h1><div class="page-sub">Vue calculée à partir du Journal</div>`;
-  if (comptes.length===0){ html += `<div class="table-wrap"><div class="empty"><div class="big">📚</div>Aucune écriture. Saisissez le Journal ou créez une facture.</div></div>`; }
+  const comptes = Object.keys(byCompte).filter(c => byCompte[c].lignes.length || Math.abs(byCompte[c].report) > 0.005).sort();
+  let html = `<h1 class="page-title">Grand Livre</h1><div class="page-sub">Vue calculée à partir du Journal — du ${fmtDateFr(du)} au ${fmtDateFr(au)}</div>
+    ${periodeToolbar("renderGrandLivre", "exportGrandLivreExcel")}`;
+  if (comptes.length===0){ html += `<div class="table-wrap"><div class="empty"><div class="big">📚</div>Aucune écriture sur la période.</div></div>`; }
   comptes.forEach(c => {
-    let solde = 0;
-    const lines = byCompte[c].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-    html += `<div class="card"><h3 style="margin-bottom:10px;">Compte ${c}</h3>
+    const { report, lignes } = byCompte[c];
+    let solde = report, totD = 0, totC = 0;
+    lignes.sort((x,y)=>(x.date||"").localeCompare(y.date||""));
+    html += `<div class="card"><h3 style="margin-bottom:10px;">Compte ${esc(c)}${intitules[c] ? " — "+esc(intitules[c]) : ""}</h3>
       <div class="table-wrap"><table><thead><tr><th>Date</th><th>Pièce</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Solde</th></tr></thead><tbody>
-      ${lines.map(l => { solde += (Number(l.debit)||0)-(Number(l.credit)||0);
-        return `<tr><td>${l.date||""}</td><td>${l.piece||""}</td><td>${l.libelle||""}</td><td>${fmt(l.debit)}</td><td>${fmt(l.credit)}</td><td><b>${fmt(solde)}</b></td></tr>`;
+      ${Math.abs(report) > 0.005 ? `<tr><td>${fmtDateFr(du)}</td><td></td><td><i>Report à nouveau (solde antérieur)</i></td><td></td><td></td><td><b>${fmt(report)}</b></td></tr>` : ""}
+      ${lignes.map(l => { const d = Number(l.debit)||0, cr = Number(l.credit)||0; solde += d - cr; totD += d; totC += cr;
+        return `<tr><td>${esc(l.date||"")}</td><td>${esc(l.piece||"")}</td><td>${esc(l.libelle||"")}</td><td>${fmt(d)}</td><td>${fmt(cr)}</td><td><b>${fmt(solde)}</b></td></tr>`;
       }).join("")}
+      <tr style="font-weight:700; background:#F8FAFD;"><td colspan="3">Total de la période</td><td>${fmt(totD)}</td><td>${fmt(totC)}</td><td>${fmt(solde)}</td></tr>
       </tbody></table></div></div>`;
   });
   document.getElementById("content").innerHTML = html;
+  await syncPeriodeInputs();
 }
-async function renderBalance(){
-  const rows = (await getAllSafe("journal")).map(escInPlace);
+async function exportGrandLivreExcel(){
+  const { du, au } = await getPeriodeCompta();
+  const intitules = await getIntitulesComptes();
+  const rows = (await getAllSafe("journal")).filter(r => r.date && r.date >= du && r.date <= au)
+    .sort((a,b) => String(a.compte).localeCompare(String(b.compte)) || (a.date||"").localeCompare(b.date||""));
+  exportRowsExcel(`Grand livre ${du} au ${au}`, rows.map(r => ({
+    "Compte": r.compte, "Intitulé": intitules[String(r.compte).trim()] || "", "Date": r.date, "Journal": r.journalType || "",
+    "Pièce": r.piece || "", "Libellé": r.libelle || "", "Débit": Number(r.debit)||0, "Crédit": Number(r.credit)||0 })));
+}
+
+/* Balance générale de la période : soldes d'ouverture (antérieurs à la période), mouvements, soldes de clôture. */
+async function computeBalance(du, au){
+  const rows = await getAllSafe("journal");
   const byCompte = {};
   rows.forEach(r => {
-    const c = r.compte || "—";
-    byCompte[c] = byCompte[c] || {debit:0, credit:0};
-    byCompte[c].debit += Number(r.debit)||0;
-    byCompte[c].credit += Number(r.credit)||0;
+    if (!r.date || r.date > au) return;
+    const c = String(r.compte || "—").trim();
+    const b = byCompte[c] = byCompte[c] || { ouverture:0, debit:0, credit:0 };
+    const d = Number(r.debit)||0, cr = Number(r.credit)||0;
+    if (r.date < du) b.ouverture += d - cr; else { b.debit += d; b.credit += cr; }
   });
-  const comptes = Object.keys(byCompte).sort();
-  let totD=0, totC=0, totSD=0, totSC=0;
-  const lines = comptes.map(c => {
-    const {debit, credit} = byCompte[c];
-    const sd = debit>credit ? debit-credit : 0, sc = credit>debit ? credit-debit : 0;
-    totD+=debit; totC+=credit; totSD+=sd; totSC+=sc;
-    return `<tr><td>${c}</td><td>${fmt(debit)}</td><td>${fmt(credit)}</td><td>${fmt(sd)}</td><td>${fmt(sc)}</td></tr>`;
-  }).join("");
-  document.getElementById("content").innerHTML = `
-    <h1 class="page-title">Balance générale</h1><div class="page-sub">Calculée à partir du Journal</div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>N° compte</th><th>Total débit</th><th>Total crédit</th><th>Solde débiteur</th><th>Solde créditeur</th></tr></thead>
-      <tbody>${lines || `<tr><td colspan="5" class="empty">Aucune écriture</td></tr>`}
-      <tr style="font-weight:700; background:#F8FAFD;"><td>TOTAUX</td><td>${fmt(totD)}</td><td>${fmt(totC)}</td><td>${fmt(totSD)}</td><td>${fmt(totSC)}</td></tr>
-      </tbody></table></div>`;
+  return Object.keys(byCompte).sort().map(c => {
+    const b = byCompte[c], fin = b.ouverture + b.debit - b.credit;
+    return { compte:c, ouverture:b.ouverture, debit:b.debit, credit:b.credit, soldeDebiteur: fin > 0 ? fin : 0, soldeCrediteur: fin < 0 ? -fin : 0 };
+  }).filter(l => Math.abs(l.ouverture) > 0.005 || l.debit || l.credit);
 }
+async function renderBalance(){
+  const { du, au } = await getPeriodeCompta();
+  const [lignes, intitules] = await Promise.all([computeBalance(du, au), getIntitulesComptes()]);
+  const tot = lignes.reduce((t,l) => { t.o += l.ouverture; t.d += l.debit; t.c += l.credit; t.sd += l.soldeDebiteur; t.sc += l.soldeCrediteur; return t; }, {o:0,d:0,c:0,sd:0,sc:0});
+  const html = lignes.map(l => `<tr><td>${esc(l.compte)}</td><td>${esc(intitules[l.compte]||"")}</td><td>${fmt(l.ouverture)}</td><td>${fmt(l.debit)}</td><td>${fmt(l.credit)}</td><td>${fmt(l.soldeDebiteur)}</td><td>${fmt(l.soldeCrediteur)}</td></tr>`).join("");
+  const equilibre = Math.abs(tot.sd - tot.sc) < 0.5;
+  document.getElementById("content").innerHTML = `
+    <h1 class="page-title">Balance générale</h1><div class="page-sub">Du ${fmtDateFr(du)} au ${fmtDateFr(au)} — ${equilibre ? `<span class="badge ok">équilibrée</span>` : `<span class="badge danger">déséquilibrée</span>`}</div>
+    ${periodeToolbar("renderBalance", "exportBalanceExcel")}
+    <div class="table-wrap"><table>
+      <thead><tr><th>N° compte</th><th>Intitulé</th><th>Solde d'ouverture</th><th>Mouvements débit</th><th>Mouvements crédit</th><th>Solde débiteur</th><th>Solde créditeur</th></tr></thead>
+      <tbody>${html || `<tr><td colspan="7" class="empty">Aucune écriture</td></tr>`}
+      <tr style="font-weight:700; background:#F8FAFD;"><td colspan="2">TOTAUX</td><td>${fmt(tot.o)}</td><td>${fmt(tot.d)}</td><td>${fmt(tot.c)}</td><td>${fmt(tot.sd)}</td><td>${fmt(tot.sc)}</td></tr>
+      </tbody></table></div>`;
+  await syncPeriodeInputs();
+}
+async function exportBalanceExcel(){
+  const { du, au } = await getPeriodeCompta();
+  const [lignes, intitules] = await Promise.all([computeBalance(du, au), getIntitulesComptes()]);
+  exportRowsExcel(`Balance ${du} au ${au}`, lignes.map(l => ({ "Compte": l.compte, "Intitulé": intitules[l.compte]||"",
+    "Solde d'ouverture": l.ouverture, "Débit": l.debit, "Crédit": l.credit, "Solde débiteur": l.soldeDebiteur, "Solde créditeur": l.soldeCrediteur })));
+}
+
 /* ---------------------------------------------------------
    LIVRE DE PAIE — registre récapitulatif de tous les bulletins
    (obligatoire au regard du Code du Travail ivoirien, art. 32.5)
@@ -3616,31 +3666,438 @@ async function renderPrevisionnel(){
 
 /* ---- Nouvelle fonctionnalité : Tableau de bord comptable ---- */
 async function renderDashboardCompta(){
-  const journal = await getAllSafe("journal");
-  let totalDebit = 0, totalCredit = 0, totalCharges = 0, totalProduits = 0;
-  journal.forEach(r => {
-    const debit = Number(r.debit)||0, credit = Number(r.credit)||0;
-    totalDebit += debit; totalCredit += credit;
-    const classe = String(r.compte||"").trim().charAt(0);
-    if (classe === "6") totalCharges += debit - credit;
-    if (classe === "7") totalProduits += credit - debit;
-  });
-  const resultatProvisoire = totalProduits - totalCharges;
+  const { du, au } = await getPeriodeCompta();
+  const journal = (await getAllSafe("journal")).filter(r => r.date && r.date >= du && r.date <= au);
+  const all = await getAllSafe("journal");
+  let totalDebit = 0, totalCredit = 0;
+  all.forEach(r => { totalDebit += Number(r.debit)||0; totalCredit += Number(r.credit)||0; });
+  const er = computeEtatsFinanciers(all, du, au);
   const equilibre = Math.abs(totalDebit - totalCredit) < 0.5;
+  const tva = computeTva(journal);
+  const treso = await computeTresorerie();
   document.getElementById("content").innerHTML = `
     <h1 class="page-title">Tableau de bord comptable</h1>
-    <div class="page-sub">Calculé en direct à partir du Journal — ${journal.length} écriture(s)</div>
+    <div class="page-sub">Du ${fmtDateFr(du)} au ${fmtDateFr(au)} — ${journal.length} écriture(s) sur la période</div>
+    ${periodeToolbar("renderDashboardCompta")}
     <div class="kpis" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin:18px 0;">
-      ${kpiCard("Total débit", fmt(totalDebit), "Cumul des écritures")}
-      ${kpiCard("Total crédit", fmt(totalCredit), "Cumul des écritures")}
-      ${kpiCard("Charges (classe 6)", fmt(totalCharges), "Solde débiteur net")}
-      ${kpiCard("Produits (classe 7)", fmt(totalProduits), "Solde créditeur net")}
-      ${kpiCard("Résultat provisoire", fmt(resultatProvisoire), resultatProvisoire>=0 ? "Bénéfice provisoire" : "Perte provisoire")}
+      ${kpiCard("Chiffre d'affaires (70)", fmt(er.resultat.ca), "Ventes nettes de la période")}
+      ${kpiCard("Charges (classe 6)", fmt(er.resultat.totalCharges), "Exploitation + financières")}
+      ${kpiCard("Produits (classe 7)", fmt(er.resultat.totalProduits), "Exploitation + financiers")}
+      ${kpiCard("Résultat net", fmt(er.resultat.net), er.resultat.net>=0 ? "Bénéfice de la période" : "Perte de la période")}
+      ${kpiCard("TVA à payer", fmt(Math.max(0, tva.due)), tva.due < 0 ? "Crédit de TVA : "+fmt(-tva.due) : "Collectée - déductible")}
+      ${kpiCard("Trésorerie", fmt(treso.total), "À ce jour")}
     </div>
     <div class="page-sub">${equilibre
       ? `<span class="badge ok">✅ Journal équilibré (débit = crédit)</span>`
-      : `<span class="badge danger">⚠️ Déséquilibre détecté : débit ≠ crédit — vérifiez le Journal</span>`}</div>
-    <div class="page-sub" style="margin-top:8px;">Résultat provisoire = produits (classe 7) − charges (classe 6), à titre indicatif avant clôture d'exercice.</div>`;
+      : `<span class="badge danger">⚠️ Déséquilibre détecté : débit ≠ crédit — vérifiez le Journal</span>`}
+      ${Math.abs(er.bilan.ecart) < 0.5 ? `<span class="badge ok">✅ Bilan équilibré</span>` : `<span class="badge danger">⚠️ Bilan déséquilibré de ${fmt(er.bilan.ecart)}</span>`}</div>
+    <div class="toolbar" style="margin-top:14px;">
+      <button class="btn small ghost" onclick="renderRoute('etatsFinanciers')">Voir les états financiers</button>
+      <button class="btn small ghost" onclick="renderRoute('declarationTva')">Voir la déclaration de TVA</button>
+      <button class="btn small ghost" onclick="renderRoute('balance')">Voir la balance</button>
+    </div>`;
+  await syncPeriodeInputs();
+}
+
+/* ---------------------------------------------------------
+   PÉRIODE COMPTABLE (filtres du / au), utilitaires
+   --------------------------------------------------------- */
+let periodeCompta = null;
+async function getPeriodeCompta(){
+  if (periodeCompta) return periodeCompta;
+  const soc = (await getAllSafe("societe"))[0] || {};
+  const annee = new Date().getFullYear();
+  let du = soc.debutExercice || `${annee}-01-01`;
+  const d = new Date(du + "T00:00:00");
+  const fin = new Date(d.getFullYear() + 1, d.getMonth(), d.getDate() - 1);
+  const au = `${fin.getFullYear()}-${String(fin.getMonth()+1).padStart(2,"0")}-${String(fin.getDate()).padStart(2,"0")}`;
+  return { du, au };
+}
+function fmtDateFr(iso){ return iso ? String(iso).split("-").reverse().join("/") : ""; }
+function periodeToolbar(renderFn, exportFn){
+  const p = periodeCompta || {};
+  return `<div class="toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
+    <label style="font-size:12px; color:#5B6479;">Du</label><input type="date" id="perDu" value="${esc(p.du||"")}" style="width:auto;">
+    <label style="font-size:12px; color:#5B6479;">au</label><input type="date" id="perAu" value="${esc(p.au||"")}" style="width:auto;">
+    <button class="btn small" onclick="appliquerPeriode('${renderFn}')">Appliquer</button>
+    <button class="btn small ghost" onclick="periodeCompta=null; ${renderFn}()">Exercice en cours</button>
+    ${exportFn ? `<button class="btn small ghost" onclick="${exportFn}()">⬇️ Exporter Excel</button>` : ""}
+    ${renderFn === "renderEtatsFinanciers" || renderFn === "renderDeclarationTva" ? `<button class="btn small gold" onclick="${renderFn}(true)">🖨️ Imprimer</button>` : ""}
+  </div>`;
+}
+async function appliquerPeriode(renderFn){
+  const du = document.getElementById("perDu").value, au = document.getElementById("perAu").value;
+  if (!du || !au || du > au){ toast("Période invalide : la date de début doit précéder la date de fin"); return; }
+  periodeCompta = { du, au };
+  await window[renderFn]();
+}
+/* Remplit les dates du filtre après affichage (valeurs par défaut de l'exercice). */
+async function syncPeriodeInputs(){
+  const p = await getPeriodeCompta();
+  const du = document.getElementById("perDu"), au = document.getElementById("perAu");
+  if (du && !du.value) du.value = p.du;
+  if (au && !au.value) au.value = p.au;
+}
+async function getIntitulesComptes(){
+  const plan = await getAllSafe("planComptable");
+  const map = {};
+  plan.forEach(c => { map[String(c.compte).trim()] = c.intitule; });
+  return map;
+}
+function exportRowsExcel(nom, rows){
+  if (typeof XLSX === "undefined"){ toast("Bibliothèque Excel indisponible (vérifiez la connexion internet)"); return; }
+  if (!rows.length){ toast("Aucune donnée à exporter"); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, nom.slice(0,31).replace(/[\\/?*\[\]:]/g, "-"));
+  XLSX.writeFile(wb, nom.replace(/[^\w\- ]/g, "_") + ".xlsx");
+  toast(rows.length + " ligne(s) exportée(s) vers Excel");
+}
+function ouvrirImpression(titre, corps){
+  const w = window.open("", "_blank");
+  w.document.write(`<html><head><meta charset="UTF-8"><title>${esc(titre)}</title><style>
+    body{font-family:Arial,Helvetica,sans-serif; font-size:12px; color:#182338; padding:24px;}
+    h1{font-size:17px; color:#1F3864; margin:0 0 2px;} h2{font-size:14px; color:#1F3864; margin:18px 0 6px;}
+    .sub{color:#555; margin-bottom:14px;} table{width:100%; border-collapse:collapse; margin-bottom:10px;}
+    th,td{border:1px solid #ccc; padding:5px 8px;} th{background:#EEF2F9; text-align:left;} td.n{text-align:right; font-variant-numeric:tabular-nums;}
+    tr.tot td{font-weight:700; background:#F4F6FA;} .two{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+    @media print{ .noprint{display:none;} }
+  </style></head><body onload="window.print()">${corps}<button class="noprint" onclick="window.print()">Imprimer</button></body></html>`);
+  w.document.close();
+}
+
+/* ---------------------------------------------------------
+   ÉTATS FINANCIERS SYSCOHADA (Bilan + Compte de résultat)
+   Calculés depuis le Journal. Bilan à la date de fin, résultat sur la période.
+   --------------------------------------------------------- */
+const RUBRIQUES_CHARGES = [
+  ["60","Achats et variations de stocks"],["61","Transports"],["62","Services extérieurs A"],["63","Services extérieurs B"],
+  ["64","Impôts et taxes"],["65","Autres charges"],["66","Charges de personnel"],["67","Frais financiers et charges assimilées"],
+  ["68","Dotations aux amortissements"],["69","Dotations aux provisions"],
+  ["81","Valeurs comptables des cessions (HAO)"],["83","Charges HAO"],["85","Dotations HAO"],
+  ["87","Participation des travailleurs"],["89","Impôts sur le résultat"]];
+const RUBRIQUES_PRODUITS = [
+  ["70","Ventes (chiffre d'affaires)"],["71","Subventions d'exploitation"],["72","Production immobilisée"],["73","Variations des stocks de biens produits"],
+  ["75","Autres produits"],["77","Revenus financiers et produits assimilés"],["78","Transferts de charges"],["79","Reprises de provisions"],
+  ["82","Produits des cessions d'immobilisations (HAO)"],["84","Produits HAO"],["86","Reprises HAO"],["88","Subventions d'équilibre (HAO)"]];
+
+function computeEtatsFinanciers(journal, du, au){
+  const soldes = {};              // compte -> solde (débit - crédit) cumulé jusqu'à « au » (classes 1 à 5)
+  const parRubrique = {};         // préfixe 2 chiffres -> montant (classes 6, 7, 8) sur la période
+  let resultatAnterieur = 0;      // résultats des périodes précédentes non encore affectés
+  journal.forEach(e => {
+    if (!e.date || e.date > au) return;
+    const c = String(e.compte||"").trim(), classe = c.charAt(0);
+    const mvt = (Number(e.debit)||0) - (Number(e.credit)||0);
+    if ("12345".includes(classe) && classe) soldes[c] = (soldes[c]||0) + mvt;
+    else if ("678".includes(classe) && classe){
+      if (e.date < du) resultatAnterieur -= mvt;
+      else { const r = c.slice(0,2); parRubrique[r] = (parRubrique[r]||0) + mvt; }
+    }
+  });
+  const charge = r => parRubrique[r] || 0;          // débit - crédit
+  const produit = r => -(parRubrique[r] || 0);      // crédit - débit
+  const charges = RUBRIQUES_CHARGES.map(([r,l]) => ({ rubrique:r, libelle:l, montant: charge(r) }));
+  const produits = RUBRIQUES_PRODUITS.map(([r,l]) => ({ rubrique:r, libelle:l, montant: produit(r) }));
+  // charges / produits de classe 8 non répertoriés (ex. 80) : rattachés au HAO
+  const sum = (arr, keys) => arr.filter(x => keys.includes(x.rubrique)).reduce((s,x) => s + x.montant, 0);
+  const exploitation = sum(produits, ["70","71","72","73","75","78","79"]) - sum(charges, ["60","61","62","63","64","65","66","68","69"]);
+  const financier = sum(produits, ["77"]) - sum(charges, ["67"]);
+  const hao = sum(produits, ["82","84","86","88"]) - sum(charges, ["81","83","85"]);
+  const totalProduits = produits.reduce((s,x)=>s+x.montant,0);
+  const totalCharges = charges.reduce((s,x)=>s+x.montant,0);
+  const net = totalProduits - totalCharges;
+  const resultat = { charges, produits, ca: produit("70"), exploitation, financier, hao,
+    participation: charge("87"), impot: charge("89"), totalProduits, totalCharges, net };
+
+  // ---- Bilan
+  const pos = (pred, signe) => Object.entries(soldes).filter(([c]) => pred(c)).reduce((s,[,v]) => s + signe*v, 0);
+  const comptesSens = (classe, debiteur) => Object.entries(soldes).filter(([c,v]) => c.charAt(0) === classe && (debiteur ? v > 0.005 : v < -0.005))
+    .reduce((s,[,v]) => s + Math.abs(v), 0);
+  const immoBrut = pos(c => c.charAt(0)==="2" && !c.startsWith("28") && !c.startsWith("29"), 1);
+  const amort = pos(c => c.startsWith("28") || c.startsWith("29"), -1);
+  const stocks = pos(c => c.charAt(0)==="3", 1);
+  const creances = comptesSens("4", true);
+  const tresoActif = comptesSens("5", true);
+  const capitaux = pos(c => c.charAt(0)==="1" && Number(c.slice(0,2)) <= 15, -1);
+  const dettesFin = pos(c => c.charAt(0)==="1" && Number(c.slice(0,2)) >= 16, -1);
+  const dettes = comptesSens("4", false);
+  const tresoPassif = comptesSens("5", false);
+  const actif = [
+    { libelle:"Immobilisations (valeur brute)", montant: immoBrut },
+    { libelle:"Amortissements et dépréciations", montant: -amort },
+    { libelle:"Stocks", montant: stocks },
+    { libelle:"Créances et emplois assimilés (clients, TVA récupérable...)", montant: creances },
+    { libelle:"Trésorerie - Actif (banques, caisses)", montant: tresoActif },
+  ];
+  const passif = [
+    { libelle:"Capital, réserves et report à nouveau", montant: capitaux },
+    { libelle:"Résultats antérieurs non affectés", montant: resultatAnterieur },
+    { libelle:"Résultat net de la période", montant: net },
+    { libelle:"Dettes financières et ressources assimilées", montant: dettesFin },
+    { libelle:"Dettes circulantes (fournisseurs, fiscales, sociales...)", montant: dettes },
+    { libelle:"Trésorerie - Passif (découverts)", montant: tresoPassif },
+  ];
+  const totalActif = actif.reduce((s,x)=>s+x.montant,0), totalPassif = passif.reduce((s,x)=>s+x.montant,0);
+  return { resultat, bilan: { actif, passif, totalActif, totalPassif, ecart: totalActif - totalPassif } };
+}
+
+async function renderEtatsFinanciers(imprimer){
+  const { du, au } = await getPeriodeCompta();
+  const soc = (await getAllSafe("societe"))[0] || {};
+  const { resultat: r, bilan: b } = computeEtatsFinanciers(await getAllSafe("journal"), du, au);
+  const ligne = (l, m, gras) => `<tr${gras?' class="tot"':''}><td>${gras?"<b>":""}${esc(l)}${gras?"</b>":""}</td><td class="n num">${gras?"<b>":""}${fmt(m)}${gras?"</b>":""}</td></tr>`;
+  const tableResultat = `
+    <div class="two">
+      <table><thead><tr><th>Charges</th><th>Montant</th></tr></thead><tbody>
+        ${r.charges.filter(x=>x.montant).map(x => ligne(x.rubrique+" — "+x.libelle, x.montant)).join("") || ligne("Aucune charge", 0)}
+        ${ligne("Total des charges", r.totalCharges, true)}</tbody></table>
+      <table><thead><tr><th>Produits</th><th>Montant</th></tr></thead><tbody>
+        ${r.produits.filter(x=>x.montant).map(x => ligne(x.rubrique+" — "+x.libelle, x.montant)).join("") || ligne("Aucun produit", 0)}
+        ${ligne("Total des produits", r.totalProduits, true)}</tbody></table>
+    </div>
+    <table><tbody>
+      ${ligne("Chiffre d'affaires", r.ca)}${ligne("Résultat d'exploitation", r.exploitation)}${ligne("Résultat financier", r.financier)}
+      ${ligne("Résultat des activités ordinaires", r.exploitation + r.financier)}${ligne("Résultat hors activités ordinaires (HAO)", r.hao)}
+      ${ligne("Participation des travailleurs", -r.participation)}${ligne("Impôts sur le résultat", -r.impot)}
+      ${ligne(r.net >= 0 ? "RÉSULTAT NET (bénéfice)" : "RÉSULTAT NET (perte)", r.net, true)}
+    </tbody></table>`;
+  const tableBilan = `
+    <div class="two">
+      <table><thead><tr><th>Actif</th><th>Montant net</th></tr></thead><tbody>
+        ${b.actif.map(x => ligne(x.libelle, x.montant)).join("")}${ligne("TOTAL ACTIF", b.totalActif, true)}</tbody></table>
+      <table><thead><tr><th>Passif</th><th>Montant</th></tr></thead><tbody>
+        ${b.passif.map(x => ligne(x.libelle, x.montant)).join("")}${ligne("TOTAL PASSIF", b.totalPassif, true)}</tbody></table>
+    </div>
+    <div>${Math.abs(b.ecart) < 0.5 ? "✅ Bilan équilibré (actif = passif)" : "⚠️ Écart actif / passif : "+fmt(b.ecart)+" — vérifiez que chaque pièce du Journal est équilibrée."}</div>`;
+  if (imprimer === true){
+    ouvrirImpression("États financiers", `<h1>${esc(soc.raison||"KAYELY GESTION PRO")} — États financiers SYSCOHADA</h1>
+      <div class="sub">Compte de résultat du ${fmtDateFr(du)} au ${fmtDateFr(au)} — Bilan au ${fmtDateFr(au)}</div>
+      <h2>Bilan au ${fmtDateFr(au)}</h2>${tableBilan}<h2>Compte de résultat</h2>${tableResultat}
+      <div class="sub" style="margin-top:14px;">Présentation simplifiée, établie à partir du Journal. À faire valider par votre expert-comptable avant dépôt de la DSF.</div>`);
+    return;
+  }
+  document.getElementById("content").innerHTML = `
+    <h1 class="page-title">États financiers SYSCOHADA</h1>
+    <div class="page-sub">Compte de résultat du ${fmtDateFr(du)} au ${fmtDateFr(au)} — Bilan au ${fmtDateFr(au)} (calculés en direct depuis le Journal)</div>
+    ${periodeToolbar("renderEtatsFinanciers")}
+    <div class="card"><h3 style="margin-bottom:10px;">Bilan au ${fmtDateFr(au)}</h3>${tableBilan}</div>
+    <div class="card"><h3 style="margin-bottom:10px;">Compte de résultat</h3>${tableResultat}</div>
+    <div class="page-sub">Présentation simplifiée, établie à partir du Journal. À faire valider par votre expert-comptable avant dépôt de la DSF.</div>`;
+  await syncPeriodeInputs();
+}
+
+/* ---------------------------------------------------------
+   DÉCLARATION DE TVA (depuis le Journal)
+   --------------------------------------------------------- */
+function computeTva(journal){
+  let collectee = 0, deductibleBiens = 0, deductibleImmo = 0, autresDeductibles = 0, ca = 0;
+  journal.forEach(e => {
+    const c = String(e.compte||"").trim(), d = Number(e.debit)||0, cr = Number(e.credit)||0;
+    if (c.startsWith("443")) collectee += cr - d;
+    else if (c.startsWith("4451")) deductibleImmo += d - cr;
+    else if (c.startsWith("4452")) deductibleBiens += d - cr;
+    else if (c.startsWith("445")) autresDeductibles += d - cr;
+    if (c.startsWith("70")) ca += cr - d;
+  });
+  const deductible = deductibleBiens + deductibleImmo + autresDeductibles;
+  return { ca, collectee, deductibleBiens, deductibleImmo, autresDeductibles, deductible, due: collectee - deductible };
+}
+async function renderDeclarationTva(imprimer){
+  const { du, au } = await getPeriodeCompta();
+  const soc = (await getAllSafe("societe"))[0] || {};
+  const t = computeTva((await getAllSafe("journal")).filter(e => e.date && e.date >= du && e.date <= au));
+  const lignes = [
+    ["Chiffre d'affaires HT de la période (comptes 70)", t.ca],
+    ["TVA collectée sur ventes (443)", t.collectee],
+    ["TVA déductible sur achats de biens et services (4452)", t.deductibleBiens],
+    ["TVA déductible sur immobilisations (4451)", t.deductibleImmo],
+    ["Autres TVA déductibles (445)", t.autresDeductibles],
+    ["Total TVA déductible", t.deductible],
+  ];
+  const resultat = t.due >= 0 ? ["TVA NETTE À PAYER", t.due] : ["CRÉDIT DE TVA À REPORTER", -t.due];
+  const table = `<table><tbody>${lignes.map(([l,m]) => `<tr><td>${esc(l)}</td><td class="n num">${fmt(m)}</td></tr>`).join("")}
+    <tr class="tot"><td><b>${resultat[0]}</b></td><td class="n num"><b>${fmt(resultat[1])}</b></td></tr></tbody></table>`;
+  if (imprimer === true){
+    ouvrirImpression("Déclaration de TVA", `<h1>${esc(soc.raison||"KAYELY GESTION PRO")} — Déclaration de TVA</h1>
+      <div class="sub">Période du ${fmtDateFr(du)} au ${fmtDateFr(au)}${soc.cc ? " — N° contribuable "+esc(soc.cc) : ""}</div>${table}
+      <div class="sub">Récapitulatif établi à partir du Journal, à reporter sur votre déclaration (e-impôts).</div>`);
+    return;
+  }
+  document.getElementById("content").innerHTML = `
+    <h1 class="page-title">Déclaration de TVA</h1>
+    <div class="page-sub">Période du ${fmtDateFr(du)} au ${fmtDateFr(au)} — choisissez le mois à déclarer</div>
+    ${periodeToolbar("renderDeclarationTva")}
+    <div class="table-wrap">${table}</div>
+    <div class="page-sub" style="margin-top:10px;">Récapitulatif établi à partir du Journal (factures, avoirs, achats, immobilisations), à reporter sur votre déclaration (e-impôts).</div>`;
+  await syncPeriodeInputs();
+}
+
+/* ---------------------------------------------------------
+   CLÔTURE DE PÉRIODE (contrôle côté navigateur ; le serveur l'impose aussi)
+   --------------------------------------------------------- */
+const DATE_PIECE = { factures:"date", avoirs:"date", facturesAchat:"date", stockEntrees:"date", stockSorties:"date",
+  treso_caisse:"date", journal:"date", immobilisations:"dateAcquisition", paieCalcul:"periode" };
+function datePiece(storeKey, r){
+  const f = DATE_PIECE[storeKey];
+  if (!f || !r || !r[f]) return "";
+  return f === "periode" ? periodeToDate(r[f]) : String(r[f]);
+}
+async function verifierCloture(storeKey, ...records){
+  if (!DATE_PIECE[storeKey]) return true;
+  const lock = ((await getAllSafe("societe"))[0] || {}).dateCloture;
+  if (!lock) return true;
+  for (const r of records){
+    const d = datePiece(storeKey, r);
+    if (d && d <= lock){ toast("Période clôturée jusqu'au "+fmtDateFr(lock)+" : une pièce du "+fmtDateFr(d)+" ne peut plus être modifiée."); return false; }
+  }
+  return true;
+}
+
+/* ---------------------------------------------------------
+   SAISIE D'UNE PIÈCE COMPTABLE SUR PLUSIEURS LIGNES (équilibrée)
+   --------------------------------------------------------- */
+let pieceLignes = [];
+async function openPieceForm(){
+  const plan = await getAllSafe("planComptable");
+  pieceLignes = [{compte:"", libelle:"", debit:0, credit:0}, {compte:"", libelle:"", debit:0, credit:0}];
+  const journaux = MODULE_INDEX.journal.mod.fields.find(f => f.k === "journalType").opts;
+  document.getElementById("modalBody").innerHTML = `
+    <h3>Nouvelle pièce comptable</h3>
+    <datalist id="planComptes">${plan.map(c => `<option value="${esc(c.compte)}">${esc(c.compte)} — ${esc(c.intitule)}</option>`).join("")}</datalist>
+    <div class="grid cols-3">
+      <div class="field"><label>Date *</label><input type="date" id="pc_date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>Journal</label><select id="pc_journal">${journaux.map(j => `<option value="${esc(j)}">${esc(j)}</option>`).join("")}</select></div>
+      <div class="field"><label>N° pièce</label><input id="pc_piece" placeholder="ex. OD-2026-001"></div>
+    </div>
+    <div class="field"><label>Libellé commun</label><input id="pc_libelle" placeholder="ex. Loyer du mois de mars"></div>
+    <div id="pieceEditor"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal()">Annuler</button>
+      <button class="btn gold" onclick="savePiece()">Enregistrer la pièce</button>
+    </div>`;
+  renderPieceEditor();
+  document.getElementById("overlay").classList.add("show");
+}
+function renderPieceEditor(){
+  const el = document.getElementById("pieceEditor"); if (!el) return;
+  el.innerHTML = `<table style="width:100%; border-collapse:collapse; margin-top:6px;">
+    <thead><tr><th style="text-align:left;font-size:11px;">Compte</th><th style="text-align:left;font-size:11px;">Libellé</th>
+      <th style="text-align:right;font-size:11px;width:120px;">Débit</th><th style="text-align:right;font-size:11px;width:120px;">Crédit</th><th style="width:30px;"></th></tr></thead>
+    <tbody>${pieceLignes.map((l,i) => `<tr>
+      <td style="padding:3px;"><input list="planComptes" value="${esc(l.compte)}" oninput="majPiece(${i},'compte',this.value)" style="width:100%;"></td>
+      <td style="padding:3px;"><input value="${esc(l.libelle)}" oninput="majPiece(${i},'libelle',this.value)" style="width:100%;"></td>
+      <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${l.debit||""}" oninput="majPiece(${i},'debit',this.value)" style="width:100%;text-align:right;"></td>
+      <td style="padding:3px;"><input type="number" min="0" step="0.01" value="${l.credit||""}" oninput="majPiece(${i},'credit',this.value)" style="width:100%;text-align:right;"></td>
+      <td><button type="button" onclick="pieceLignes.splice(${i},1); if(!pieceLignes.length) pieceLignes.push({compte:'',libelle:'',debit:0,credit:0}); renderPieceEditor()" style="background:none;border:none;color:#B3261E;cursor:pointer;">✕</button></td>
+    </tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="2" style="text-align:right;font-weight:700;padding:6px;">Totaux</td>
+      <td id="pcTotD" style="text-align:right;font-weight:700;"></td><td id="pcTotC" style="text-align:right;font-weight:700;"></td><td></td></tr>
+      <tr><td colspan="5" id="pcEcart" style="text-align:right;padding:4px;"></td></tr></tfoot></table>
+    <button type="button" class="btn small ghost" onclick="pieceLignes.push({compte:'',libelle:'',debit:0,credit:0}); renderPieceEditor()">+ Ajouter une ligne</button>`;
+  majTotauxPiece();
+}
+function majPiece(i, champ, v){
+  pieceLignes[i][champ] = (champ === "debit" || champ === "credit") ? Number(v)||0 : v;
+  majTotauxPiece();
+}
+function majTotauxPiece(){
+  const d = pieceLignes.reduce((s,l)=>s+(Number(l.debit)||0),0), c = pieceLignes.reduce((s,l)=>s+(Number(l.credit)||0),0);
+  const td = document.getElementById("pcTotD"), tc = document.getElementById("pcTotC"), te = document.getElementById("pcEcart");
+  if (td) td.textContent = fmt(d); if (tc) tc.textContent = fmt(c);
+  if (te) te.innerHTML = Math.abs(d-c) < 0.005 && d > 0 ? `<span class="badge ok">Pièce équilibrée</span>` : `<span class="badge danger">Écart : ${fmt(d-c)}</span>`;
+}
+async function savePiece(){
+  const date = document.getElementById("pc_date").value;
+  const journalType = document.getElementById("pc_journal").value;
+  const piece = document.getElementById("pc_piece").value.trim();
+  const libelleCommun = document.getElementById("pc_libelle").value.trim();
+  const lignes = pieceLignes.filter(l => String(l.compte).trim() && ((Number(l.debit)||0) || (Number(l.credit)||0)));
+  if (!date){ toast("La date est obligatoire"); return; }
+  if (lignes.length < 2){ toast("Une pièce comporte au moins deux lignes (compte + montant)"); return; }
+  if (lignes.some(l => (Number(l.debit)||0) > 0 && (Number(l.credit)||0) > 0)){ toast("Une ligne est soit au débit, soit au crédit"); return; }
+  const d = lignes.reduce((s,l)=>s+(Number(l.debit)||0),0), c = lignes.reduce((s,l)=>s+(Number(l.credit)||0),0);
+  if (Math.abs(d - c) >= 0.005){ toast("Pièce déséquilibrée : débit "+fmt(d)+" ≠ crédit "+fmt(c)); return; }
+  if (!(await verifierCloture("journal", { date }))) return;
+  for (const l of lignes){
+    await putRecord("journal", { date, journalType, piece, compte:String(l.compte).trim(), libelle: l.libelle || libelleCommun,
+      debit: Number(l.debit)||0, credit: Number(l.credit)||0 });
+  }
+  toast("Pièce "+(piece || "")+" enregistrée ("+lignes.length+" lignes, "+fmt(d)+")");
+  closeModal();
+  renderModuleList(MODULE_INDEX.journal.mod);
+}
+
+/* ---------------------------------------------------------
+   RELEVÉ DE COMPTE CLIENT
+   --------------------------------------------------------- */
+async function printReleveClient(id){
+  const client = (await getAllSafe("clients")).find(c => c.id === id);
+  if (!client){ toast("Client introuvable"); return; }
+  const soc = (await getAllSafe("societe"))[0] || {};
+  const [factures, avoirs] = await Promise.all([getAllSafe("factures"), getAllSafe("avoirs")]);
+  const mouvements = [];
+  factures.filter(f => f.client === client.nom).forEach(f => {
+    const m = montantsFacture(f);
+    mouvements.push({ date:f.date, libelle:"Facture "+(f.numero||""), debit:m.ttc, credit:0 });
+    if (m.regle > 0) mouvements.push({ date:f.date, libelle:"Règlement facture "+(f.numero||"")+" ("+(f.modeReglement||"Caisse")+")", debit:0, credit:m.regle });
+  });
+  avoirs.filter(a => a.client === client.nom).forEach(a => {
+    const ht = Number(a.montantHT)||0, ttc = ht + ht*(Number(a.tvaPct)||0)/100;
+    mouvements.push({ date:a.date, libelle:"Avoir "+(a.numero||"")+(a.factureRef ? " sur "+a.factureRef : ""), debit:0, credit:ttc });
+  });
+  mouvements.sort((a,b) => (a.date||"").localeCompare(b.date||""));
+  let solde = 0;
+  const lignes = mouvements.map(m => { solde += m.debit - m.credit;
+    return `<tr><td>${esc(fmtDateFr(m.date))}</td><td>${esc(m.libelle)}</td><td class="n">${m.debit?fmt(m.debit):""}</td><td class="n">${m.credit?fmt(m.credit):""}</td><td class="n"><b>${fmt(solde)}</b></td></tr>`; }).join("");
+  ouvrirImpression("Relevé de compte — "+client.nom, `
+    <h1>${esc(soc.raison||"KAYELY GESTION PRO")}</h1>
+    <div class="sub">${esc(soc.adresse||"")} ${esc(soc.ville||"")} ${soc.tel ? "— Tél. "+esc(soc.tel) : ""}</div>
+    <h2>Relevé de compte client — ${esc(client.nom)}</h2>
+    <div class="sub">${client.ncc ? "NCC "+esc(client.ncc)+" — " : ""}Édité le ${new Date().toLocaleDateString("fr-FR")}</div>
+    <table><thead><tr><th>Date</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Solde</th></tr></thead>
+    <tbody>${lignes || `<tr><td colspan="5" style="text-align:center;">Aucun mouvement</td></tr>`}
+    <tr class="tot"><td colspan="4">${solde >= 0 ? "Solde dû par le client" : "Solde en faveur du client"}</td><td class="n">${fmt(Math.abs(solde))}</td></tr></tbody></table>
+    <div class="sub">Arrêté à la somme de : <b>${esc(montantEnLettres(Math.abs(solde)))}</b></div>`);
+}
+
+/* ---------------------------------------------------------
+   MONTANT EN LETTRES (francs CFA)
+   --------------------------------------------------------- */
+function nombreEnLettres(n){
+  n = Math.floor(Math.abs(Number(n)||0));
+  if (n === 0) return "zéro";
+  const unites = ["","un","deux","trois","quatre","cinq","six","sept","huit","neuf","dix","onze","douze","treize","quatorze","quinze","seize","dix-sept","dix-huit","dix-neuf"];
+  const dizaines = ["","dix","vingt","trente","quarante","cinquante","soixante","soixante","quatre-vingt","quatre-vingt"];
+  function moinsDeCent(x, finale){
+    if (x < 20) return unites[x];
+    const d = Math.floor(x/10), u = x % 10;
+    if (d === 7 || d === 9){ // 70-79, 90-99 : soixante-dix..., quatre-vingt-dix...
+      const reste = 10 + u;
+      return dizaines[d] + (d === 7 && u === 1 ? " et " : "-") + unites[reste];
+    }
+    if (u === 0) return dizaines[d] + (d === 8 && finale ? "s" : "");
+    return dizaines[d] + (u === 1 && d !== 8 ? " et " : "-") + unites[u];
+  }
+  function moinsDeMille(x, finale){
+    const c = Math.floor(x/100), r = x % 100;
+    let s = "";
+    if (c > 0) s = (c > 1 ? unites[c] + " " : "") + "cent" + (c > 1 && r === 0 && finale ? "s" : "");
+    if (r > 0) s += (s ? " " : "") + moinsDeCent(r, finale);
+    return s;
+  }
+  const parts = [];
+  const milliards = Math.floor(n / 1e9), millions = Math.floor((n % 1e9) / 1e6), milliers = Math.floor((n % 1e6) / 1000), reste = n % 1000;
+  if (milliards) parts.push(moinsDeMille(milliards, true) + " milliard" + (milliards > 1 ? "s" : ""));
+  if (millions) parts.push(moinsDeMille(millions, true) + " million" + (millions > 1 ? "s" : ""));
+  if (milliers) parts.push((milliers === 1 ? "" : moinsDeMille(milliers, false) + " ") + "mille");
+  if (reste) parts.push(moinsDeMille(reste, true));
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+function montantEnLettres(n){
+  const v = Math.round(Math.abs(Number(n)||0));
+  const txt = nombreEnLettres(v);
+  return txt.charAt(0).toUpperCase() + txt.slice(1) + " franc" + (v > 1 ? "s" : "") + " CFA";
 }
 
 /* ---------------------------------------------------------

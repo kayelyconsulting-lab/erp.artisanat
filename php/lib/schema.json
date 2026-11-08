@@ -64,6 +64,16 @@
      "k": "capital",
      "l": "Capital social (FCFA)",
      "t": "number"
+    },
+    {
+     "k": "debutExercice",
+     "l": "Début de l'exercice comptable en cours",
+     "t": "date"
+    },
+    {
+     "k": "dateCloture",
+     "l": "Période comptable clôturée jusqu'au (inclus) — plus aucune modification avant cette date",
+     "t": "date"
     }
    ],
    "section": "parametres"

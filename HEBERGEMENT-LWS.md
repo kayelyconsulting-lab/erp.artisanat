@@ -53,6 +53,16 @@ Dans la console, section **« Clés d'activation »** :
 Toutes les clés émises restent listées dans la console.
 **Sauvegardez `licence-signature.key` avec le reste du dossier.** Si ce fichier est perdu, il faut en créer un nouveau : les clés déjà émises ne seront plus reconnues et devront être réémises.
 
+## Fonctions comptables
+
+* **Clôture de période :** Paramètres → Société → « Période comptable clôturée jusqu'au ». Plus aucune pièce datée avant cette date ne peut être créée, modifiée ni supprimée, et c'est le serveur qui l'impose. Seul l'administrateur peut rouvrir une période.
+* **Exercice :** Paramètres → Société → « Début de l'exercice comptable en cours » sert de période par défaut aux rapports.
+* **États financiers :** Comptabilité → Bilan et Compte de résultat SYSCOHADA (présentation simplifiée), imprimables.
+* **Déclaration de TVA :** Comptabilité → choisir le mois → TVA collectée, déductible, à payer ou crédit.
+* **Grand livre et balance :** filtre du / au, report à nouveau, intitulés des comptes, export Excel.
+* **Journal :** « Saisir une pièce » sur plusieurs lignes ; une pièce déséquilibrée est refusée.
+* **Clients :** bouton « Relevé » (relevé de compte imprimable) ; factures avec le montant en lettres.
+
 ## Où sont les données ?
 
 Dans le dossier `kgpro-donnees/`, créé automatiquement hors de `htdocs` (sinon dans `donnees/`, protégé) :
