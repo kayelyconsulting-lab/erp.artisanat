@@ -52,7 +52,14 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
   page.on("dialog", d => d.accept());
-  page.on("response", r => { if (r.url().includes("/api/") && [401, 403, 500].includes(r.status())) erreursHttp.push(r.status() + " " + r.request().method() + " " + r.url().replace(R, "") + " @" + new Date().toISOString().slice(11, 19)); });
+  // Erreurs HTTP de l'API, avec l'origine probable : réponse JSON = application, sinon pare-feu / proxy.
+  const noterErreurs = pg => pg.on("response", async r => {
+    if (!r.url().includes("/api/") || r.status() < 400) return;
+    let corps = ""; try { corps = (await r.text()).slice(0, 120).replace(/\s+/g, " "); } catch(_){}
+    erreursHttp.push(r.status() + " " + r.request().method() + " " + r.url().replace(R, "") + " @" + new Date().toISOString().slice(11, 19)
+      + " [" + (r.headers()["content-type"] || "?") + "] " + corps);
+  });
+  noterErreurs(page);
   await page.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
   await page.goto(R + SOCIETE_PATH + "/");
   await page.waitForFunction(() => ["setupCard", "loginCard"].some(id => getComputedStyle(document.getElementById(id)).display !== "none")
@@ -330,7 +337,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
 
   console.log("Rôle Comptable : modifier une facture remplace ses écritures");
   await saveViaForm("utilisateurs", { nom: "Compta", login: "compta", motDePasse: "Compta-Init-2026", role: "Comptable", statut: "Actif" });
-  const p2 = await ctx.newPage(); p2.on("pageerror", e => errors.push("compta: " + e.message)); p2.on("dialog", d => d.accept());
+  const p2 = await ctx.newPage(); p2.on("pageerror", e => errors.push("compta: " + e.message)); p2.on("dialog", d => d.accept()); noterErreurs(p2);
   await p2.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
   await ev(() => logout());
   await p2.goto(R + SOCIETE_PATH + "/");
@@ -397,7 +404,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
 })().catch(async e => {
   console.error("\n✗ ÉCHEC :", e.message);
   if (page) console.error("Derniers messages :", await page.evaluate(() => (window.__toasts || []).slice(-4)).catch(() => "?"));
-  if (typeof erreursHttp !== "undefined") console.error("Réponses en erreur :", erreursHttp.slice(-10));
+  if (typeof erreursHttp !== "undefined") console.error("Réponses en erreur :", erreursHttp.filter(e => !/^401 GET .*api\/me/.test(e)).slice(-8));
   if (page) console.error("Utilisateur courant :", await page.evaluate(() => JSON.stringify(currentUser)).catch(() => "?"));
   try{ console.error("Journal PHP :\n" + fs.readFileSync(path.join(data, "php.log"), "utf8").split("\n").filter(l => /KGP|Fatal|Warning|error/i.test(l)).slice(-15).join("\n")); }catch(_){}
   process.exitCode = 1;
