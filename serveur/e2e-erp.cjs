@@ -25,7 +25,7 @@ if (!REMOTE){
     { env: { ...process.env, KGP_DATA_DIR: data, PHP_CLI_SERVER_WORKERS: "6" }, stdio: ["ignore", "ignore", logFd] });
 }
 
-let passed = 0, browser = null, page = null;
+let passed = 0, browser = null, page = null; var erreursHttp = [];
 function ok(label){ passed++; console.log("  ✓ " + label); }
 
 (async () => {
@@ -52,6 +52,7 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
   page.on("dialog", d => d.accept());
+  page.on("response", r => { if (r.url().includes("/api/") && [401, 403, 500].includes(r.status())) erreursHttp.push(r.status() + " " + r.request().method() + " " + r.url().replace(R, "") + " @" + new Date().toISOString().slice(11, 19)); });
   await page.route("**/*", r => r.request().url().startsWith(R) ? r.continue() : r.abort());
   await page.goto(R + SOCIETE_PATH + "/");
   await page.waitForFunction(() => ["setupCard", "loginCard"].some(id => getComputedStyle(document.getElementById(id)).display !== "none")
@@ -366,6 +367,8 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
 })().catch(async e => {
   console.error("\n✗ ÉCHEC :", e.message);
   if (page) console.error("Derniers messages :", await page.evaluate(() => (window.__toasts || []).slice(-4)).catch(() => "?"));
+  if (typeof erreursHttp !== "undefined") console.error("Réponses en erreur :", erreursHttp.slice(-10));
+  if (page) console.error("Utilisateur courant :", await page.evaluate(() => JSON.stringify(currentUser)).catch(() => "?"));
   try{ console.error("Journal PHP :\n" + fs.readFileSync(path.join(data, "php.log"), "utf8").split("\n").filter(l => /KGP|Fatal|Warning|error/i.test(l)).slice(-15).join("\n")); }catch(_){}
   process.exitCode = 1;
 }).finally(async () => {
