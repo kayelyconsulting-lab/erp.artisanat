@@ -380,6 +380,34 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   assert.equal(await page.inputValue("#content .search-box"), "Alp");
   ok("recherche « Alp » saisie sans perte du curseur");
 
+  console.log("Bibliothèques hébergées : Excel, import de relevé, lecture OCR");
+  assert.equal(await ev(() => typeof XLSX !== "undefined" && XLSX.version), "0.20.3", "SheetJS 0.20.3 chargé depuis le site");
+  await ev(() => renderRoute("clients"));
+  const [dl] = await Promise.all([page.waitForEvent("download"), ev(() => exportModuleExcel("clients"))]);
+  assert.match(dl.suggestedFilename(), /\.xlsx$/);
+  // import d'un vrai fichier de relevé CSV par le bouton « Importer un relevé »
+  await ev(() => { rapproBanque = "SIB"; return renderRoute("rapprochementAuto"); });
+  const avantImport = await ev(async () => (await getAll("relevesBancaires")).length);
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), ev(() => choisirFichierReleve())]);
+  await chooser.setFiles({ name: "releve-avril.csv", mimeType: "text/csv",
+    buffer: Buffer.from("\uFEFFDate;Libellé;Débit;Crédit\n02/04/2026;FRAIS TENUE DE COMPTE;2 000,00;\n", "utf8") });
+  await page.waitForFunction(n => getAll("relevesBancaires").then(r => r.length > n), avantImport, { timeout: 60000 });
+  const importe = await ev(async () => (await getAll("relevesBancaires")).slice(-1)[0]);
+  assert.deepEqual([importe.fichier, importe.lignes.length, importe.lignes[0].date, importe.lignes[0].montant], ["releve-avril.csv", 1, "2026-04-02", -2000]);
+  // lecture OCR d'une image (moteur, données de langue et worker servis par le site)
+  const texte = await ev(async () => {
+    const c = document.createElement("canvas"); c.width = 900; c.height = 180;
+    const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, 900, 180);
+    g.fillStyle = "#000"; g.font = "bold 56px Arial"; g.fillText("FACTURE 2026 TOTAL", 30, 110);
+    await loadTesseractScript();
+    const { data } = await Tesseract.recognize(c.toDataURL("image/png"), "fra", {
+      workerPath: kgpAssets("vendor/tesseract/worker.min.js"), corePath: kgpAssets("vendor/tesseract/core"),
+      langPath: kgpAssets("vendor/tesseract/lang"), gzip: false, workerBlobURL: false });
+    return data.text;
+  });
+  assert.match(texte, /FACTURE/i, "texte reconnu : " + texte);
+  ok("SheetJS 0.20.3 local, export Excel, import du relevé CSV par le bouton, OCR « " + texte.trim().slice(0, 30) + " »");
+
   console.log("Tous les modules s'ouvrent sans erreur");
   const keys = await ev(() => SECTIONS.flatMap(s => s.modules.map(m => m.key)));
   for (const k of keys){

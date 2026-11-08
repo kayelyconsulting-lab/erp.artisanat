@@ -1,0 +1,4 @@
+xlsx 0.20.3
+tesseract.js 7.0.0
+tesseract.js-core 7.0.0
+@tesseract.js-data/fra 1.0.0

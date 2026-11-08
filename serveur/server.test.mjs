@@ -193,7 +193,8 @@ test("en-têtes de sécurité", async () => {
   assert.equal(api.headers.get("strict-transport-security"), null, "HSTS seulement en HTTPS");
   const page = await fetch(base + "/");
   const csp = page.headers.get("content-security-policy") || "";
-  assert.match(csp, /default-src 'self'/); assert.match(csp, /frame-ancestors 'none'/); assert.match(csp, /cdnjs\.cloudflare\.com/);
+  assert.match(csp, /default-src 'self'/); assert.match(csp, /frame-ancestors 'none'/);
+  assert.doesNotMatch(csp, /https?:\/\//, "aucune source extérieure autorisée");
   assert.equal(page.headers.get("x-powered-by"), null);
   const https = await fetch(base + "/api/status", { headers: { "X-Forwarded-Proto": "https" } });
   assert.match(https.headers.get("strict-transport-security") || "", /max-age=31536000/);
@@ -243,4 +244,27 @@ test("messages de journal nettoyés (Node)", async () => {
   const m = messageSur("Échec pour jean.kouassi@exemple.ci, tél. 07 07 12 34 56, fichier /home/kayely/donnees/kgpro.sqlite");
   assert.doesNotMatch(m, /jean\.kouassi|07 07 12|\/home\/kayely/);
   assert.match(m, /\[email\].*\[numéro\].*\[chemin\]/);
+});
+
+test("bibliothèques hébergées avec l'application (aucun CDN)", async () => {
+  const page = await (await fetch(base + "/")).text();
+  assert.doesNotMatch(page, /cdnjs|jsdelivr|unpkg|tessdata\.projectnaptha/, "aucun script tiers dans la page");
+  const racine = new URL(base).origin;   // les bibliothèques sont à la racine du site
+  const xlsx = await fetch(racine + "/assets/vendor/xlsx/xlsx.full.min.js");
+  assert.equal(xlsx.status, 200);
+  assert.match(xlsx.headers.get("content-type") || "", /javascript/);
+  assert.equal(xlsx.headers.get("x-content-type-options"), "nosniff");
+  assert.match(await xlsx.text(), /version="0\.20\.3"/, "SheetJS 0.20.3 (failles CVE-2023-30533 et CVE-2024-22363 corrigées)");
+  assert.equal((await fetch(racine + "/assets/vendor/tesseract/lang/fra.traineddata", { method: "HEAD" })).status, 200);
+  // pas de sortie du dossier assets (chemins envoyés tels quels, sans normalisation)
+  const http = await import("node:http");
+  const brut = chemin => new Promise((ok, ko) => {
+    const u = new URL(racine);
+    http.get({ host: u.hostname, port: u.port, path: chemin }, r => { let d = ""; r.on("data", c => d += c); r.on("end", () => ok({ status: r.statusCode, corps: d })); }).on("error", ko);
+  });
+  for (const chemin of ["/assets/..%2f..%2fserveur%2fserver.mjs", "/assets/vendor/..%2f..%2fphp%2flib%2fapp.php",
+                        "/assets/vendor/VERSIONS.txt", "/assets/vendor/xlsx/LICENSE"]){
+    const r = await brut(chemin);
+    assert.ok(r.status >= 400 || !/import |<\?php|xlsx 0\.|Apache License/.test(r.corps), "accès refusé : " + chemin + " (" + r.status + ")");
+  }
 });

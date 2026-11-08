@@ -38,6 +38,13 @@ Il vérifie trois choses avant d'enregistrer quoi que ce soit :
 * `Content-Security-Policy` : les pages ne chargent que le site lui-même, plus deux CDN (cdnjs pour Excel, jsdelivr et tessdata pour la lecture OCR). Aucun cadre extérieur n'est permis. Les réponses JSON ont `default-src 'none'`.
 * `Strict-Transport-Security` (en HTTPS), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` et `Cross-Origin-Resource-Policy`. L'en-tête `X-Powered-By` est retiré.
 
+**Dépendances :**
+* Serveurs : aucune dépendance externe. Node.js et PHP n'utilisent que leurs modules intégrés.
+* Navigateur : les bibliothèques sont **hébergées avec l'application** (`assets/vendor/`), à des versions fixées. Aucun script n'est chargé depuis un CDN, et la politique de sécurité n'autorise aucune source extérieure.
+  * SheetJS 0.20.3 (Excel, relevés bancaires) : corrige CVE-2023-30533 et CVE-2024-22363 (versions ≤ 0.19.2 / 0.20.1).
+  * Tesseract.js 7.0.0, avec tesseract.js-core 7.0.0 et les données françaises (lecture OCR des factures scannées).
+* Mise à jour : `npm run vendor`. Le script vérifie l'empreinte de chaque paquet (SHA-512 npm, SHA-256 pour SheetJS) avant de copier les fichiers. Relancez ensuite les tests (`npm run test:e2e`).
+
 **Erreurs et journaux :**
 * Les erreurs PHP ne sont jamais affichées (`display_errors` désactivé par l'application).
 * Une erreur inattendue renvoie seulement « Erreur interne du serveur (réf. XXXXXXXX) ».

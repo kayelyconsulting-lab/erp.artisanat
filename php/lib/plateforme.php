@@ -430,6 +430,7 @@ function kgp_route(): void {
       return;
     }
     kgp_use_tenant($societe, $base);
+    $GLOBALS['KGP_BASE'] = $base;
     $GLOBALS['KGP_LICENSE_PUBLIC'] = kgp_licence_public();
     if ($isApi($rest)){ kgp_handle_api($apiPart($rest)); return; }
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET'){ kgp_send(['error' => 'Méthode non autorisée'], 405); return; }

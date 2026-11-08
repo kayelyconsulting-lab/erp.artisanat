@@ -39,7 +39,21 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
   const db = openDatabase(dbFile);
   const limiter = createLoginLimiter();
   const appHtml = () => fs.readFileSync(appFile, "utf8")
-    .replace("<head>", "<head>\n<script>window.KGP_SERVER = true;</script>");
+    .replace(/src="assets\//g, 'src="/assets/')
+    .replace("<head>", '<head>\n<script>window.KGP_SERVER = true; window.KGP_ASSETS = "/assets/";</script>');
+  // Bibliothèques du navigateur hébergées avec l'application (assets/vendor)
+  const ASSETS = path.join(ROOT, "assets");
+  const TYPES = { ".js": "application/javascript; charset=utf-8", ".traineddata": "application/octet-stream" };
+  function serveAsset(req, res, pathname){
+    const fichier = path.resolve(ASSETS, "." + decodeURIComponent(pathname.slice("/assets".length)));
+    const type = TYPES[path.extname(fichier)];
+    if (!fichier.startsWith(ASSETS + path.sep) || !type || !fs.existsSync(fichier) || !fs.statSync(fichier).isFile()) return false;
+    res.writeHead(200, { "Content-Type": type, "X-Content-Type-Options": "nosniff", "Cache-Control": "public, max-age=604800",
+      "Cross-Origin-Resource-Policy": "same-origin" });
+    if (req.method === "HEAD"){ res.end(); return true; }
+    fs.createReadStream(fichier).pipe(res);
+    return true;
+  }
 
   /* ---------- utilisateurs ---------- */
   const publicUser = u => { if (!u) return null; const { motDePasseHash, ...rest } = u; return { ...rest, motDePasse: "" }; };
@@ -232,9 +246,9 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
   }
   // En-têtes de sécurité (mêmes règles que la version PHP).
   const CSP_PAGE = "default-src 'self'; "
-    + "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob:; "
-    + "worker-src 'self' blob: https://cdn.jsdelivr.net; "
-    + "connect-src 'self' https://cdn.jsdelivr.net https://tessdata.projectnaptha.com data: blob:; "
+    + "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
+    + "worker-src 'self'; "
+    + "connect-src 'self' data: blob:; "
     + "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; "
     + "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
   function securityHeaders(req, page){
@@ -396,6 +410,7 @@ export function createApp({ appFile = path.join(ROOT, "kgpro.html"), dbFile = ":
     if (apiAt > 0) url.pathname = url.pathname.slice(apiAt);
     try{
       if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
+      if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/assets/") && serveAsset(req, res, url.pathname)) return;
       if (req.method === "GET" && (url.pathname.endsWith("/") || url.pathname.endsWith("/kgpro.html"))) return send(res, 200, appHtml());
       return send(res, 404, { error: "Introuvable" });
     }catch(e){

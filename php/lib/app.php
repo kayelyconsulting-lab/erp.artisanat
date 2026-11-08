@@ -408,12 +408,13 @@ function kgp_remove(array $user, string $store, int $id): bool {
 /* ---------------- HTTP ---------------- */
 
 /* En-têtes de sécurité. Pages : politique de contenu limitée au site et aux deux CDN
-   utilisés (Excel : cdnjs ; lecture OCR : jsdelivr + données de langue tessdata).
+   hébergées avec l'application (Excel, lecture OCR) : aucune source extérieure.
    Réponses JSON : rien ne peut s'y exécuter. */
+// Aucune source extérieure : les bibliothèques (Excel, lecture OCR) sont hébergées avec l'application.
 const KGP_CSP_PAGE = "default-src 'self'; "
-  . "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob:; "
-  . "worker-src 'self' blob: https://cdn.jsdelivr.net; "
-  . "connect-src 'self' https://cdn.jsdelivr.net https://tessdata.projectnaptha.com data: blob:; "
+  . "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
+  . "worker-src 'self'; "
+  . "connect-src 'self' data: blob:; "
   . "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; "
   . "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 function kgp_security_headers(bool $page = false): void {
@@ -609,6 +610,9 @@ function kgp_serve_app(): void {
     $html = preg_replace('/const KGP_LICENSE_PUBLIC_KEY = "[^"]*";/', 'const KGP_LICENSE_PUBLIC_KEY = "' . $pub . '";', $html, 1);
   }
   $pos = strpos($html, '<head>');
-  $inject = "<head>\n<script>window.KGP_SERVER = true; window.KGP_SOCIETE = $societe;</script>";
+  // Bibliothèques hébergées à la racine du site (/assets/), quelle que soit l'adresse de la société.
+  $assets = ($GLOBALS['KGP_BASE'] ?? '') . '/assets/';
+  $html = str_replace('src="assets/', 'src="' . $assets, $html);
+  $inject = "<head>\n<script>window.KGP_SERVER = true; window.KGP_SOCIETE = $societe; window.KGP_ASSETS = " . json_encode($assets, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG) . ";</script>";
   echo $pos === false ? $html : substr_replace($html, $inject, $pos, 6);
 }

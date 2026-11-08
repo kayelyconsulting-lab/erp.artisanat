@@ -12,6 +12,7 @@
     "test": "node --test serveur/*.test.mjs",
     "test:php": "node serveur/test-php.mjs",
     "paquet:php": "node outils/paquet-php.mjs",
-    "test:e2e": "node serveur/e2e-erp.cjs"
+    "test:e2e": "node serveur/e2e-erp.cjs",
+    "vendor": "node outils/vendor.mjs"
   }
 }
