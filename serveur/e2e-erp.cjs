@@ -423,6 +423,15 @@ function ok(label){ passed++; console.log("  ✓ " + label); }
   await ev(() => renderRoute("clients"));
   const [dl] = await Promise.all([page.waitForEvent("download"), ev(() => exportModuleExcel("clients"))]);
   assert.match(dl.suggestedFilename(), /\.xlsx$/);
+  // import de fiches dans un module par le bouton « Importer Excel » (CSV « ; » avec BOM)
+  await ev(() => renderRoute("rhEmployes"));
+  const avantEmp = await ev(async () => (await getAll("rhEmployes")).length);
+  const [chooserImp] = await Promise.all([page.waitForEvent("filechooser"), ev(() => triggerExcelImport("rhEmployes"))]);
+  await chooserImp.setFiles({ name: "employes.csv", mimeType: "text/csv",
+    buffer: Buffer.from("\uFEFFMatricule;Nom;Salaire de base;Type contrat\r\nEMP-TST;IMPORT TESTE;175000;CDI\r\n", "utf8") });
+  await page.waitForFunction(n => getAll("rhEmployes").then(r => r.length > n), avantEmp, { timeout: 30000 });
+  const emp = await ev(async () => (await getAll("rhEmployes")).find(e => e.matricule === "EMP-TST"));
+  assert.equal(emp.nom, "IMPORT TESTE", "import : nom lu"); assert.equal(emp.salaireBase, 175000, "import : nombre lu"); assert.equal(emp.contrat, "CDI");
   // import d'un vrai fichier de relevé CSV par le bouton « Importer un relevé »
   await ev(() => { rapproBanque = "SIB"; return renderRoute("rapprochementAuto"); });
   const avantImport = await ev(async () => (await getAll("relevesBancaires")).length);
