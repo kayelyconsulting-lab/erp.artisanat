@@ -4,6 +4,9 @@ Options -Indexes
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
+  # Indispensable sur un sous-domaine / sous-dossier (LWS et autres) : sans cela, la
+  # cible « index.php » est mal résolue et toutes les adresses réécrites tombent en 404.
+  RewriteBase /
   # Dépôt Git éventuel et fichiers de sauvegarde : jamais exposés (défense en profondeur)
   RewriteRule (?i)(^|/)\.git - [F]
   # Toujours en HTTPS
@@ -12,8 +15,9 @@ Options -Indexes
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
   # Bibliothèques du navigateur (assets/) : fichiers servis tels quels
   RewriteRule ^assets/ - [L]
-  # Toutes les adresses (accueil, console, /<code-société>/...) passent par index.php
-  RewriteCond %{REQUEST_URI} !(^|/)index\.php$
+  # Contrôleur frontal : toutes les adresses (accueil, console, /<code-société>/...)
+  # passent par index.php, sauf les fichiers réels existants (assets, favicon…).
+  RewriteCond %{REQUEST_FILENAME} !-f
   RewriteRule ^ index.php [QSA,L]
 </IfModule>
 
