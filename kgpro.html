@@ -2313,6 +2313,17 @@ async function handleExcelImport(event){
       const missingRequired = (mod.fields||[]).some(f => f.req && (record[f.k]===undefined || record[f.k]===""));
       if (missingRequired){ skipped++; continue; }
 
+      // Reprise de factures « à plat » (un seul total par pièce, sans détail d'articles) :
+      // on crée une ligne unique à partir du Montant HT pour que la pièce soit valide.
+      // Désignation générique -> pas de correspondance article -> aucun mouvement de stock généré.
+      if (mod.hasLignes && !(Array.isArray(record.lignes) && record.lignes.length)){
+        const pu = Number(record.montantHT) || 0;
+        if (pu > 0){
+          const designation = storeKey === "facturesAchat" ? "Achat de marchandises" : "Vente de marchandises";
+          record.lignes = [{ designation, quantite: 1, prixUnitaire: pu, montant: pu }];
+        }
+      }
+
       if (NUMERO_PREFIXES[storeKey] && !record.numero){
         record.numero = await generateNumero(storeKey);
       }
