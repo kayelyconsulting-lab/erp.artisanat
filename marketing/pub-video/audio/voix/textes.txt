@@ -1,0 +1,7 @@
+# début (s) | texte prononcé (voix Piper fr_FR-siwis-medium) | fichier
+0.5  | Kayéli Group. Le digital, au service de votre entreprise. | 0.wav
+4.6  | Factures, stocks, paie, comptabilité... Tout est éparpillé ? | 1.wav
+9.5  | Découvrez Kayéli Gestion Pro : vos ventes, vos encaissements et votre trésorerie, en temps réel. | 2.wav
+17.1 | Facturation, stocks, paie, comptabilité Syscoada, paiement Mobile Money. Tout votre business, dans un seul outil. | 3.wav (--length-scale 0.88)
+23.3 | Simple. Sûr. Fiable. | 4.wav
+27.6 | Kayéli Group. Rendez-vous sur kayéli group point com ! | 5.wav

@@ -1,0 +1,19 @@
+{
+  "name": "kayely-pub-video",
+  "description": "Pub vidéo Kayely Group (motion design Remotion)",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "rendu": "bash rendu.sh",
+    "apercu": "node stills.mjs PubV 100 365 600 940"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.545",
+    "@remotion/cli": "^4.0.545",
+    "@remotion/paths": "^4.0.545",
+    "@remotion/renderer": "^4.0.545",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.545"
+  },
+  "private": true
+}
